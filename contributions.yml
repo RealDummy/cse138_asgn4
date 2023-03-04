@@ -1,0 +1,4 @@
+- edpchen: 'Testing and debugging. Also worked on conflict resolution.'
+- swortzma: 'broadcast functionality, operations, causality and tiebreakers for key values store, get/put for kvs/data/<key> test scripts'
+- jatdinh: 'Implemented initial code for view changes, set base logic for view changes, and collaborated on final version of view changes'
+- ohtran: 'Gossip, view changes, delete data, get /kvs/data endpoint, testing and debugging'
