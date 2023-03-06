@@ -13,7 +13,7 @@ import re
 from kvs import Kvs, KvsNode, getLargerNode
 from background import Executor
 from operations import OperationGenerator, Operation
-from causal import getData, putData, deleteData, update_view_data
+from causal import getData, putData, deleteData
 
 
 # need startup logic when creating a replica (broadcast?)
@@ -56,9 +56,11 @@ async def putview():
     x, y = 0
     #Assign shards to nodes
     while(x < numnodes): #I think this works, haven't tested yet - James
-        associated_nodes[shard_id[y]] = numnodes[x]
+        associated_nodes[numnodes[x]] = shard_id[y]
         if y < numshards - 1:
             y += 1
+            if y == numshards:
+                y = 0
         x += 1
     #NEW CODE
 
@@ -117,9 +119,16 @@ def getview():
         l.sort()
     """
     l = []
-    for shard in associated_nodes:
-        temp = {'shard_id': shard, 'nodes': associated_nodes[shard]}
-        l.append(temp) 
+    prev_shard = None
+    temp_list = []
+    for node in associated_nodes:
+        if prev_shard != None and associated_nodes[node] != prev_shard:
+            temp = {'shard_id': associated_nodes[prev_shard],
+                     'nodes': temp_list}
+            l.append(temp)
+            temp_list.clear()
+            prev_shard = associated_nodes[node]
+        temp.append(node)  
     return ({'view': l}), 200
 
 @app.route('/kvs/admin/view', methods=['DELETE'])
