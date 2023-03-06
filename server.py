@@ -56,7 +56,7 @@ async def putview():
     x, y = 0
     #Assign shards to nodes
     while(x < numnodes): #I think this works, haven't tested yet - James
-        associated_nodes[numnodes[x]] = shard_id[y]
+        associated_nodes[shard_id[y]] = numnodes[x]
         if y < numshards - 1:
             y += 1
         x += 1
@@ -110,11 +110,17 @@ async def putview():
 
 @app.route('/kvs/admin/view', methods=['GET'])
 def getview():
+    """
     l = nodes.copy()
     if initialized and (NAME not in nodes): 
         l.append(NAME)
         l.sort()
-    return({'view': l}), 200
+    """
+    l = []
+    for shard in associated_nodes:
+        temp = {'shard_id': shard, 'nodes': associated_nodes[shard]}
+        l.append(temp) 
+    return ({'view': l}), 200
 
 @app.route('/kvs/admin/view', methods=['DELETE'])
 def delete_node():
