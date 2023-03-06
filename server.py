@@ -42,6 +42,26 @@ async def putview():
         return {"error": "bad request"}, 400
     initialized = True
 
+    #NEW CODE
+    numshards = myjson["num_shards"] #Number of Shards
+    nodelist = myjson["nodes"] #(Temporary Variable) List of nodes
+    numnodes = len[nodelist] #Number of nodes
+    if numshards > numnodes:
+        return {"bruh": "too many nodes"}, 400
+    shard_id = []
+    global associated_nodes
+    associated_nodes = {}
+    for x in range(numshards - 1): #Assign shard ID's (trivial)
+        shard_id.append(x)
+    x, y = 0
+    #Assign shards to nodes
+    while(x < numnodes): #I think this works, haven't tested yet - James
+        associated_nodes[numnodes[x]] = shard_id[y]
+        if y < numshards - 1:
+            y += 1
+        x += 1
+    #NEW CODE
+
     if set(nodes) == set(myjson['view']):
         return "OK", 200
     
@@ -70,12 +90,12 @@ async def putview():
             except Exception:
                 BGE.run(try_send_new_view(ip, myjson['view']))
             
-        nodes = myjson['view']
+        nodes = myjson['nodes']
         return "", 200
         
 
     else:
-        nodes = myjson['view']
+        nodes = myjson['nodes']
         for n in nodes:
             if NAME == n:
                 continue
@@ -84,7 +104,7 @@ async def putview():
             try:
                 requests.put(url, data=pickled_data, timeout=1)
             except Exception:
-                BGE.run(try_send_new_view(n, myjson['view']))
+                BGE.run(try_send_new_view(n, myjson['nodes']))
             
         return "OK", 200
 
