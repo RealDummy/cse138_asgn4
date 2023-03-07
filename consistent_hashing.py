@@ -8,12 +8,12 @@ def hash_fn(key, max_hashes):
 
 
 class HashRing:
-    def __init__(self, max_hashes, num_shards):
+    def __init__(self, max_hashes, virtual_shards):
         self.keys = []  # stores indexes on the HashRing where shards are
         self.shards = []  # stores the names of the shards
         # shards[i] is present on the HashRing at keys[i]
         self.max_hashes = max_hashes
-        self.num_shards = num_shards
+        self.virtual_shards = virtual_shards
 
     def add_shard(self, shard):
         key = hash_fn(shard, self.max_hashes)
@@ -25,11 +25,14 @@ class HashRing:
         self.keys.insert(index, key)  # insert "real" shard
         self.shards.insert(index, shard)
 
-        for i in range(1, self.num_shards):  # insert virtual shards
-            virtual_key = (key + self.max_hashes // self.num_shards * i) % self.max_hashes
+        # since the hashing algorithm is uniformly random. Take the hash of the hash self.virtual_shards times and also
+        # add those to the hashring under the shard name
+        for i in range(1, self.virtual_shards):  # insert virtual shards
+            virtual_key = hash_fn(str(key), self.max_hashes)
             index = bisect(self.keys, virtual_key)
             self.keys.insert(index, virtual_key)
             self.shards.insert(index, shard)
+            key = str(virtual_key)
 
         return key
 
@@ -46,11 +49,12 @@ class HashRing:
         self.keys.pop(index)  # remove "real" shard
         self.shards.pop(index)
 
-        for i in reversed(range(1, self.num_shards)):  # remove virtual shards
-            virtual_key = (key + self.max_hashes // self.num_shards * i) % self.max_hashes
+        for i in reversed(range(1, self.virtual_shards)):  # remove virtual shards
+            virtual_key = hash_fn(str(key), self.max_hashes)
             index = bisect_left(self.keys, virtual_key)
             self.keys.pop(index)
             self.shards.pop(index)
+            key = str(virtual_key)
 
         return key
 
@@ -80,3 +84,5 @@ if __name__ == '__main__':
     hr.print_ring()
     print(hr.assign("key1"))
     print(hr.assign("key2"))
+    # when you reshard you have to take all keys stored in a shard and check their assignment again. Then reassign them
+    # to their appropriate shard.
