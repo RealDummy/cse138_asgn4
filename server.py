@@ -50,13 +50,15 @@ async def putview():
         return {"bruh": "too many nodes"}, 400
     shard_id = []
     global associated_nodes
-    associated_nodes = {}
+    associated_nodes = []
+    for shard in shard_id:
+        associated_nodes.append({shard:[]})
     for x in range(numshards - 1): #Assign shard ID's (trivial)
         shard_id.append(x)
     x, y = 0
     #Assign shards to nodes
     while(x < numnodes): #I think this works, haven't tested yet - James
-        associated_nodes[numnodes[x]] = shard_id[y]
+        associated_nodes[shard_id[y]].append(numnodes[x])
         if y < numshards - 1:
             y += 1
             if y == numshards:
