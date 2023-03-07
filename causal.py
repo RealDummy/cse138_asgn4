@@ -83,32 +83,7 @@ async def getData(key: str, request: dict, *, nodes: list[str], data: Kvs) -> tu
 
     
     
-# callback is response body, status code, sender address
-async def sendWithCallback(method: str, address:str, endpoint: str, data, timeout, callback: Callable[[str, int, str], Any] | None, responses: dict | None = None):
-    url = f"http://{address + endpoint}"
-    async with httpx.AsyncClient() as client:
-        try:
-            res = await client.request(method, url, json=data, timeout=timeout)
-        except httpx.RequestError:
-            if responses:
-                responses[address] = None
-            return
-        code = res.status_code
-        body = res.text
-        if callback is not None:
-            callBackResponse = callback(body, code, address)
-            if responses is not None:
-                responses[address] = callBackResponse
 
-
-async def broadcastAll(method, addresses:list[str], endpoint, data, timeout, callback: Callable[[str, int, str], Any] | None = None) -> dict:
-    res = {}
-    async def sendBound(address):
-        await sendWithCallback(method, address, endpoint, data, timeout, callback, res)
-    async with asyncio.TaskGroup() as tg:
-        for addy in addresses:
-            tg.create_task(sendBound(addy))
-    return res
 
 def putData(key: str, request: dict, *, data: Kvs, opgen: OperationGenerator, executor: Executor, nodes: list[str]) -> tuple[dict, int]:
     msTimestamp = time() * 1000
