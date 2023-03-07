@@ -13,7 +13,8 @@ import re
 from kvs import Kvs, KvsNode, getLargerNode
 from background import Executor
 from operations import OperationGenerator, Operation
-from causal import getData, putData, deleteData, update_view_data
+from causal import getData, putData, deleteData
+from consistent_hashing import HashRing
 
 
 # need startup logic when creating a replica (broadcast?)
@@ -29,6 +30,8 @@ nodes = []
 operations = []
 initialized = False
 
+hashRing = HashRing(2543, 3)
+
 app = Flask(__name__)
 
 # kvs/admin/view - GET, PUT, DELETE
@@ -38,63 +41,49 @@ async def putview():
     myjson = request.get_json(silent=True)
     if (myjson == None):
         return {"error": "bad request"}, 400
-    if (myjson.get("view") == None):
+    if (myjson.get("nodes") == None):
+        return {"error": "bad request"}, 400
+    if (myjson.get("num_shards") == None):
         return {"error": "bad request"}, 400
     initialized = True
 
-    if set(nodes) == set(myjson['view']):
-        return "OK", 200
+    
+    numshards = int(myjson["num_shards"]) #Number of Shards
+    nodelist = myjson["nodes"] #(Temporary Variable) List of nodes
+    numnodes = len(nodelist) #Number of nodes
+    """
+    if numshards > numnodes:
+        return {"bruh": "too many nodes"}, 400
+    """
+    
+    shard_id = []
+    global associated_nodes
+    associated_nodes = {}
+
+    for x in range(numshards): #Assign shard ID's (trivial)
+        shard_id.append(x)
+    
+    for shard in shard_id:
+        associated_nodes[shard] = []
+    
+    y = 0
+    #Assign shards to nodes
+    for x in range(numnodes):
+        associated_nodes[shard_id[y]].append(nodelist[x])
+        if y < numshards - 1:
+            y += 1
+            if y == numshards:
+                y = 0
+    
+    return "OK", 200
     
     
-    if (len(nodes) != 0):
-        toRemove = []
-        for ip in nodes:
-            if ip not in myjson['view']: #Check for nodes not in the new view
-                url = f'http://{ip}/kvs/admin/view'
-                toRemove.append(ip)
-                try:
-                    response = requests.delete(url, data="", timeout = 1)
-                except Exception:
-                    BGE.run(try_send_new_view(ip, myjson['view']))
-                
-        # for ip in toRemove:
-        #     nodes.remove(ip)
-
-        # inform node that they are a part of the new view
-        assert type(myjson['view']) == list
-        for ip in myjson['view']:
-            url = f'http://{ip}/update_kvs'
-            pickled_data = pickle.dumps({"view": myjson['view'], "data": DATA})
-            try:
-                requests.put(url, data=pickled_data, timeout=1)
-            except Exception:
-                BGE.run(try_send_new_view(ip, myjson['view']))
-            
-        nodes = myjson['view']
-        return "", 200
-        
-
-    else:
-        nodes = myjson['view']
-        for n in nodes:
-            if NAME == n:
-                continue
-            url = f'http://{n}/update_kvs'
-            pickled_data = pickle.dumps({"view": nodes, "data": DATA})
-            try:
-                requests.put(url, data=pickled_data, timeout=1)
-            except Exception:
-                BGE.run(try_send_new_view(n, myjson['view']))
-            
-        return "OK", 200
-
 @app.route('/kvs/admin/view', methods=['GET'])
 def getview():
-    l = nodes.copy()
-    if initialized and (NAME not in nodes): 
-        l.append(NAME)
-        l.sort()
-    return({'view': l}), 200
+    l = []
+    for shard in associated_nodes:
+        l.append({' shard_id': shard, 'nodes': associated_nodes[shard]})
+    return ({'view': l}), 200
 
 @app.route('/kvs/admin/view', methods=['DELETE'])
 def delete_node():
