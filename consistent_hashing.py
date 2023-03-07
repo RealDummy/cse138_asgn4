@@ -13,7 +13,7 @@ class HashRing:
         self.shards = []  # stores the names of the shards
         # shards[i] is present on the HashRing at keys[i]
         self.max_hashes = max_hashes
-        self.virtual_shards = virtual_shards
+        self.virtual_shards = virtual_shards  # number of shards in addition to the 'real' shard.
 
     def add_shard(self, shard):
         key = hash_fn(shard, self.max_hashes)
@@ -27,7 +27,7 @@ class HashRing:
 
         # since the hashing algorithm is uniformly random. Take the hash of the hash self.virtual_shards times and also
         # add those to the hashring under the shard name
-        for i in range(1, self.virtual_shards):  # insert virtual shards
+        for i in range(self.virtual_shards):  # insert virtual shards
             virtual_key = hash_fn(str(key), self.max_hashes)
             index = bisect(self.keys, virtual_key)
             self.keys.insert(index, virtual_key)
@@ -46,15 +46,10 @@ class HashRing:
         if index >= len(self.keys) or self.keys[index] != key:
             raise Exception("Shard not in HashRing")
 
-        self.keys.pop(index)  # remove "real" shard
-        self.shards.pop(index)
-
-        for i in reversed(range(1, self.virtual_shards)):  # remove virtual shards
-            virtual_key = hash_fn(str(key), self.max_hashes)
-            index = bisect_left(self.keys, virtual_key)
-            self.keys.pop(index)
-            self.shards.pop(index)
-            key = str(virtual_key)
+        for i in reversed(range(len(self.keys))):  # remove shards
+            if self.shards[i] == shard:
+                self.keys.pop(i)
+                self.shards.pop(i)
 
         return key
 
@@ -72,17 +67,25 @@ if __name__ == '__main__':
     shards = ['shard1', 'shard5', 'shard3', 'shard4']
     shards2 = ['shard1', 'shard3']
 
-    hr = HashRing(10000, 3)  # can set to arbitrarily large number, int('f' * 32, 16), and any number of virtual shards
+    hr = HashRing(int('f' * 32, 16), 1000)  # can set max_hashes to arbitrarily large number, int('f' * 32, 16)
     for shard in shards:
         hr.add_shard(shard)
-    hr.print_ring()
-    print(hr.assign("key1"))
-    print(hr.assign("key2"))
+
+    def check_key_distribution(hashring):
+        count = {}
+        for i in range(10000):
+            count[hashring.assign("key" + str(i))] = count.get(hashring.assign("key" + str(i)), 0) + 1
+        return count
+    print(check_key_distribution(hr))
+    # hr.print_ring()
+    print(hr.assign('key1'))
     hr.remove_shard(hr.assign('key1'))
-    hr.print_ring()
-    hr.add_shard("shard2")
-    hr.print_ring()
-    print(hr.assign("key1"))
-    print(hr.assign("key2"))
+    # hr.print_ring()
+    print(check_key_distribution(hr))
+    # hr.print_ring()
+    # hr.add_shard("shard2")
+    # hr.print_ring()
+    # print(hr.assign("key1"))
+    # print(hr.assign("key2"))
     # when you reshard you have to take all keys stored in a shard and check their assignment again. Then reassign them
     # to their appropriate shard.
