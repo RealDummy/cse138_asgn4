@@ -64,33 +64,85 @@ def make_base_url(port, host='localhost', protocol='http'):
 def kvs_view_admin_url(port, host='localhost'):
     return f'{make_base_url(port, host)}/kvs/admin/view'
 
+def kvs_data_key_url(key, port, host='localhost'):
+    return f'{make_base_url(port, host)}/kvs/data/{key}'
+
+
+def kvs_data_url(port, host='localhost'):
+    return f'{make_base_url(port, host)}/kvs/data'
+
 def nodes_list(ports, hosts=None):
     if hosts is None:
         hosts = ['localhost'] * len(ports)
     return [f'{h}:{p}' for h, p in zip(hosts, ports)]
 
-
 def put_view_body(addresses, shards=1):
     return {'num_shards': shards, 
             'nodes': addresses}
+
+def causal_metadata_body(cm={}):
+    return {causal_metadata_key: cm}
+
+def causal_metadata_from_body(body):
+    return body[causal_metadata_key]
+
+def put_val_body(val, cm=None):
+    body = causal_metadata_body(cm)
+    body['val'] = val
+    return body
 
 class TestAssignment(unittest.TestCase):
     def setUp(self):
         for h, p in zip(hosts, ports):
             delete(kvs_view_admin_url(p,h))
 
-    def test_put_get_view(self):
-        print(num_shard, view_addresses)
+    def test_a_put_get_view(self):
         res = put(kvs_view_admin_url(ports[0], hosts[0]),
                   put_view_body(view_addresses, num_shard))
         self.assertEqual(res.status_code, 200, msg='Bad status code')
 
-        time.sleep(4)
+        time.sleep(2)
 
         res = get(kvs_view_admin_url(ports[0], hosts[0]))
         body = res.json()
         self.assertIn('view', body, msg='Key not found in json response')
         print(body)
+
+        time.sleep(2)
+        
+        # test to see that new view has propagated throughout
+        res = get(kvs_view_admin_url(ports[2], hosts[2]))
+        body2 = res.json()
+        self.assertIn('view', body, msg='Key not found in json response')
+        self.assertEqual(body, body2, msg='not the same view')
+
+    def test_b_change_view(self):
+        global view_addresses
+        view_addresses = view_addresses[:3]
+        res = put(kvs_view_admin_url(ports[0], hosts[0]),
+                  put_view_body(view_addresses, num_shard))
+        self.assertEqual(res.status_code, 200, msg='Bad status code')
+
+        time.sleep(2)
+
+        res = get(kvs_view_admin_url(ports[0], hosts[0]))
+        body = res.json()
+        self.assertIn('view', body, msg='Key not found in json response')
+        print(body)
+
+        time.sleep(2)
+        
+        # test to see that new view has propagated throughout
+        res = get(kvs_view_admin_url(ports[2], hosts[2]))
+        body2 = res.json()
+        self.assertIn('view', body, msg='Key not found in json response')
+        self.assertEqual(body, body2, msg='not the same view')
+
+        # test to see if node has been uninitialized
+        res = put(kvs_data_key_url(keys[2], ports[3], hosts[3]),
+                  put_val_body(vals[2]))
+        body = res.json()
+        self.assertEqual(res.status_code, 418, msg='Bad status code')
 
 if __name__ == '__main__':
     unittest.main(argv=['first-arg-is-ignored'], exit=False)

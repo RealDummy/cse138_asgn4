@@ -11,7 +11,7 @@ import json
 import re
 
 from kvs import Kvs, KvsNode, getLargerNode
-from background import Executor
+from background import Executor, broadcastAll
 from operations import OperationGenerator, Operation
 from causal import getData, putData, deleteData
 from consistent_hashing import HashRing
@@ -26,9 +26,11 @@ DATA = Kvs()
 BGE = Executor()
 OPGEN = OperationGenerator(NAME)
 
-nodes = []
+nodes = [] # hold list of node in the cluster
 operations = []
 initialized = False
+associated_nodes = {} # hold shard id and nodes associated with it 
+current_shard_id = None
 
 hashRing = HashRing(2543, 3)
 
@@ -50,30 +52,51 @@ async def putview():
     
     numshards = int(myjson["num_shards"]) #Number of Shards
     nodelist = myjson["nodes"] #(Temporary Variable) List of nodes
-    numnodes = len(nodelist) #Number of nodes
     """
     if numshards > numnodes:
         return {"bruh": "too many nodes"}, 400
     """
-    
-    shard_id = []
-    global associated_nodes
-    associated_nodes = {}
+    global associated_nodes, current_shard_id, nodes
 
+    if associated_nodes is not None:
+        # FIXME: work in progress - resharding
+        old_nodelist = []
+        for key in associated_nodes:
+            for n in associated_nodes[key]:
+                old_nodelist.append(n)
+        for old_node in old_nodelist:
+            if old_node not in nodelist:
+                url = f'http://{old_node}/kvs/admin/view'
+                requests.delete(url, json={}, timeout=1)
+        return "OK", 200
+
+    shard_id = []
     for x in range(numshards): #Assign shard ID's (trivial)
-        shard_id.append(x)
+        shard_id.append('shard' + str(x))
     
     for shard in shard_id:
         associated_nodes[shard] = []
-    
+        hashRing.add_shard(shard)
+
     y = 0
     #Assign shards to nodes
-    for x in range(numnodes):
-        associated_nodes[shard_id[y]].append(nodelist[x])
+    for n in nodelist:
+        associated_nodes[shard_id[y]].append(n)
+        if n == NAME:
+            current_shard_id = shard_id[y]
         if y < numshards - 1:
             y += 1
             if y == numshards:
                 y = 0
+
+    nodes = associated_nodes[current_shard_id].copy()
+    nodes.remove(NAME)
+    
+    for n in nodelist:
+        if n == NAME: 
+            continue
+        url = f'http://{n}/update_kvs'
+        requests.put(url, json=json.dumps(associated_nodes), timeout=1)
     
     return "OK", 200
     
@@ -82,7 +105,7 @@ async def putview():
 def getview():
     l = []
     for shard in associated_nodes:
-        l.append({' shard_id': shard, 'nodes': associated_nodes[shard]})
+        l.append({'shard_id': str(shard), 'nodes': associated_nodes[shard]})
     return ({'view': l}), 200
 
 @app.route('/kvs/admin/view', methods=['DELETE'])
@@ -92,6 +115,8 @@ def delete_node():
         return {"error": "uninitialized"}, 418
 
     nodes.clear()
+    associated_nodes.clear()
+    hashRing.clear()
     DATA = Kvs()
     initialized = False
     return "", 200
@@ -105,16 +130,19 @@ def checkjson(myjson):
 
 @app.route('/update_kvs', methods= ['PUT'])
 def update_kvs_view():
-    global DATA, nodes, initialized
-    d = pickle.loads(request.data)
-    
-    # if d['data'] == None:
-    #     DATA = Kvs()
-    # else:
-    #     DATA = d['data']
-    
-    nodes = d['view']
+    global DATA, nodes, initialized, associated_nodes, current_shard_id, hashRing
+    d = request.json
+    associated_nodes = json.loads(d)
+    hashRing.clear()
+
+    for k,v in associated_nodes.items():
+        hashRing.add_shard(k)
+        if NAME in v:
+            current_shard_id = k
+
+    nodes = associated_nodes[current_shard_id].copy()
     nodes.remove(NAME)
+
     initialized = True
     return "OK", 200
 
@@ -164,6 +192,7 @@ async def dataRoute(key):
         return {"error": "uninitialized"}, 418
     if request.get_json(silent=True) == None:
         return {"error": "bad request"}, 400
+
     match request.method:
         case "GET":
             res = await getData(key, request.json, nodes=nodes, data=DATA)
@@ -194,6 +223,7 @@ async def get_keys():
             metadata = list(set(metadata + list(res[0].get('causal-metadata'))))
             
     return {
+        'shard_id': current_shard_id,
         "count" : len(DATA),
         "keys" : new_keys,
         "causal-metadata" : metadata
@@ -205,7 +235,7 @@ async def gossip():
         # don't send anything if there is no available nodes or no data
         if len(nodes) == 0:
             continue
-        if DATA == None: 
+        if len(DATA) == 0: 
             continue
 
         # pick a random node

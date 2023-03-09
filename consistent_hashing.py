@@ -57,6 +57,10 @@ class HashRing:
         key = hash_fn(val, self.max_hashes)
         index = bisect_right(self.keys, key) % len(self.keys)
         return self.shards[index]
+    
+    def clear(self):
+        self.keys.clear()
+        self.shards.clear()
 
     def print_ring(self):
         print(self.keys)
