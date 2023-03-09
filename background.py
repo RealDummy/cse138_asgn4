@@ -2,6 +2,7 @@ import asyncio
 from threading import Thread
 import httpx
 from typing import Any, Callable
+import unittest
 
 #each thread needs one Executor for sending broadcast messages in the background
 class Executor:
@@ -42,7 +43,7 @@ async def sendAsync(method: str, address:str, endpoint: str, data, timeout) -> t
         try:
             res = await client.request(method, url, json=data, timeout=timeout)
         except httpx.RequestError:
-            return None
+            return None, -1
         code = res.status_code
         body = res.text
         return body, code
@@ -63,10 +64,20 @@ async def broadcastOne(method, addresses: list[str], endpoint: str, data, timeou
     futures = [asyncio.create_task( sendBound(address) ) for address in addresses]
     while True:
         done, pending = await asyncio.wait(futures, return_when=asyncio.FIRST_COMPLETED)
-        first = done.pop()
-        if first.done():
-            return first.result()
-        elif not pending:
+        while done:
+            first = done.pop()
+            if first and first.done():
+                if first.result()[1] in [200, 201]:
+                    return first.result()
+        if not pending:
             return None
         futures = pending
-    
+
+class Tests(unittest.IsolatedAsyncioTestCase):
+    async def testOne(self):
+        ips = ["localhost:8082"]
+        res = await broadcastOne("GET", ips, "/", {}, 10)
+        print(res, flush=True)
+
+if __name__ == "__main__":
+    unittest.main()
