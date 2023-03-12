@@ -1,0 +1,45 @@
+import requests
+import json
+import math
+
+from consistent_hashing import HashRing
+
+############################
+# FIXME: currently assume that number of nodes hasn't changed
+# find the amount of shards need to be remove
+# get list of nodes from removed shard
+# add them to the remaining shards
+# send every nodes the new view
+############################
+def remove_shards(num_old_shards: int , numshards: int, associated_nodes: dict, hashRing: HashRing(), nodelist: list, NAME: str):
+    num_shard_need_to_rm = num_old_shards - numshards
+
+    min_shard_id = [k for k in sorted(associated_nodes, key=lambda k:len(associated_nodes[k]))][:num_shard_need_to_rm]
+            
+    for id in min_shard_id:
+        nodes_need_to_move += associated_nodes[id]
+        associated_nodes.pop(id, None)
+        hashRing.remove_shard(id)
+
+    shard_id = associated_nodes.keys()
+    y = 0
+    num_node_in_shard = math.floor(len(nodelist) / numshards)
+    for n in nodes_need_to_move:
+        while (len(associated_nodes[shard_id[y]]) > num_node_in_shard):
+            y += 1
+            if y == numshards:
+                y = 0
+            
+        associated_nodes[shard_id[y]].append(n)
+        if n == NAME:
+            current_shard_id = shard_id[y]
+            y += 1
+            if y == numshards:
+                y = 0
+
+    for k in associated_nodes.keys():
+        for n in associated_nodes[k]:
+            if n == NAME: 
+                continue
+            url = f'http://{n}/update_view'
+            requests.put(url, json=json.dumps(associated_nodes), timeout=1)
