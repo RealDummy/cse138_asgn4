@@ -74,7 +74,7 @@ async def putview():
 
         # FIXME: need to do    
         elif numshards > num_old_shards:
-            print()
+            add_shards(num_old_shards, numshards, associated_nodes, hashRing, nodelist, NAME)
         else:
             # when list of new nodes is different than list of old nodes but num_shard stay the same
             print()
