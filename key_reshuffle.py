@@ -74,7 +74,6 @@ def add_shards(num_old_shards: int, numshards: int, associated_nodes: dict, hash
             keys = list(associated_nodes.keys())
             if len(associated_nodes[keys[0]]) < num_node_in_shard:
                     associated_nodes[keys[0]].append(n)
-                    break
 
     # in the old node list but not the new -- need to delete from associated_nodes
     for n in old_nodelist:
