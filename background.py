@@ -48,7 +48,7 @@ async def sendAsync(method: str, address:str, endpoint: str, data, timeout) -> t
         body = res.text
         return body, code
 
-async def broadcastAll(method, addresses:list[str], endpoint, data, timeout, callback: Callable[[str, int, str], Any] | None = None) -> dict:
+async def broadcastAll(method, addresses: list[str], endpoint, data, timeout, callback: Callable[[str, int, str], Any] | None = None) -> dict:
     res = {}
     async def sendBound(address):
         await sendWithCallback(method, address, endpoint, data, timeout, callback, res)

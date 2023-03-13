@@ -11,7 +11,7 @@ import json
 import re
 
 from kvs import Kvs, KvsNode, getLargerNode
-from background import Executor, broadcastAll
+from background import Executor, broadcastAll, broadcastOne
 from operations import OperationGenerator, Operation
 from causal import getData, putData, deleteData
 from consistent_hashing import HashRing
@@ -186,7 +186,13 @@ def delete_key(key):
     DATA.delete(key)
     return ":)"
 
+
+
 @app.route("/kvs/data/<key>", methods=["GET", "PUT", "DELETE"])
+async def keyEndpoint(key: str):
+    http
+
+@app.route("/proxy/data/<key>", methods=["GET", "PUT", "DELETE"])
 async def dataRoute(key):
     if not initialized:
         return {"error": "uninitialized"}, 418

@@ -53,11 +53,14 @@ class HashRing:
 
         return key
 
-    def assign(self, val):  # returns which shard a thing should be assigned to
+    def assign(self, val) -> tuple[str, int]:  # returns which shard a thing should be assigned to
         key = hash_fn(val, self.max_hashes)
-        index = bisect_right(self.keys, key) % len(self.keys)
+        return self.assign_prehashed(self, key), key
+
+    def assign_prehashed(self, hash):
+        index = bisect_right(self.keys, hash) % len(self.keys)
         return self.shards[index]
-    
+
     def clear(self):
         self.keys.clear()
         self.shards.clear()
