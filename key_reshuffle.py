@@ -59,8 +59,9 @@ def add_shards(num_old_shards: int, numshards: int, associated_nodes: dict, hash
 
     for i in range(num_shard_need_to_add):  # for each shard that we need to add
         for j in range(num_node_in_shard):  # for the min number of nodes per shard
-            max_shard_id = [k for k in sorted(associated_nodes, key=lambda k: len(associated_nodes[k]), reverse=True)][0]  # get the shard with the most nodes
-            min_shard_id = [k for k in sorted(associated_nodes, key=lambda k: len(associated_nodes[k]))][0]  # get the shard with the least nodes
+            sorted_shards = [k for k in sorted(associated_nodes, key=lambda k: len(associated_nodes[k]))]  # sort shards by number of nodes
+            max_shard_id = sorted_shards[-1]  # get shard with most nodes
+            min_shard_id = sorted_shards[0]  # get shard with least nodes
             popped = associated_nodes[max_shard_id].pop()
             associated_nodes[min_shard_id].append(popped)
 
