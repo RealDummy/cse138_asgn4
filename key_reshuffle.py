@@ -13,7 +13,7 @@ from consistent_hashing import HashRing
 ############################
 
 
-def remove_shards(num_old_shards: int , numshards: int, associated_nodes: dict, hashRing: HashRing(), nodelist: list, NAME: str):
+def remove_shards(num_old_shards: int , numshards: int, associated_nodes: dict, hashRing: HashRing, nodelist: list, NAME: str):
     num_shard_need_to_rm = num_old_shards - numshards
 
     min_shard_id = [k for k in sorted(associated_nodes, key=lambda k:len(associated_nodes[k]))][:num_shard_need_to_rm]
@@ -47,7 +47,7 @@ def remove_shards(num_old_shards: int , numshards: int, associated_nodes: dict, 
             requests.put(url, json=json.dumps(associated_nodes), timeout=1)
 
 
-def add_shards(num_old_shards: int, numshards: int, associated_nodes: dict, hashRing: HashRing(), nodelist: list, NAME:str):
+def add_shards(num_old_shards: int, numshards: int, associated_nodes: dict, hashRing: HashRing, nodelist: list, NAME:str):
     num_shard_need_to_add = numshards - num_old_shards
 
     for i in range(num_shard_need_to_add):

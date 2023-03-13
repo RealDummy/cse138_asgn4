@@ -8,9 +8,9 @@ ports=$( cat tests/metadata/ports.txt )
 ips=$( cat tests/metadata/ips.txt )
 
 view=""
-port=$( nth "$ports" $1 )
+port=$( nth "$ports" $2 )
 
-for arg in ${@:1}; do
+for arg in ${@:2}; do
     if [ "$view" != "" ]; then
         view+=", "
     fi
@@ -22,5 +22,5 @@ curl \
 --request PUT \
 --header "Content-Type: application/json" \
 --write-out "%{http_code}\n" \
---data "{\"view\": [$view]}" \
+--data "{\"nodes\": [$view], \"num_shards\": $1}" \
 http://localhost:$port/kvs/admin/view

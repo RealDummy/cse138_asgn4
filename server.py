@@ -4,12 +4,13 @@ import os
 import sys
 import requests
 import pickle
-from time import sleep
+from time import sleep, time
 from random import randrange
 import asyncio
 import json
 import re
 import math
+import httpx
 
 from kvs import Kvs, KvsNode, getLargerNode
 from background import Executor, broadcastAll, broadcastOne
@@ -31,7 +32,7 @@ OPGEN = OperationGenerator(NAME)
 nodes = [] # hold list of node in the cluster
 operations = []
 initialized = False
-associated_nodes = {} # hold shard id and nodes associated with it 
+associated_nodes:dict[str, list[str]] = {} # hold shard id and nodes associated with it 
 current_shard_id = None
 reshuffle = False
 
@@ -219,7 +220,22 @@ def delete_key(key):
 
 @app.route("/kvs/data/<key>", methods=["GET", "PUT", "DELETE"])
 async def keyEndpoint(key: str):
-    http
+    if not initialized:
+        return {"error": "uninitialized"}, 418
+    if request.get_json(silent=True) == None:
+        return {"error": "bad request"}, 400
+
+    #get url for every node in correct shard
+    shardId, keyHashesTo = hashRing.assign(key)
+    addresses = associated_nodes[shardId]
+    proxyData = request.json
+    proxyData["timestamp"] = time() * 1000
+
+    try:
+        res = await broadcastOne(request.method, addresses, f"proxy/data/{key}", proxyData, 20)
+        return res
+    except httpx.TimeoutException:
+        return {"error": "upstream down", "upstream": {"shard_id": shardId, "nodes": [addresses]}}, 503
 
 @app.route("/proxy/data/<key>", methods=["GET", "PUT", "DELETE"])
 async def dataRoute(key):
@@ -312,7 +328,5 @@ def update_tree():
 
 
 if __name__ == "__main__":
-    
     BGE.run(gossip())
-
     app.run(host='0.0.0.0', port=PORT, debug=True)

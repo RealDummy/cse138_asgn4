@@ -85,8 +85,8 @@ async def getData(key: str, request: dict, *, nodes: list[str], data: Kvs) -> tu
 
 
 def putData(key: str, request: dict, *, data: Kvs, opgen: OperationGenerator, executor: Executor, nodes: list[str]) -> tuple[dict, int]:
-    msTimestamp = time() * 1000
     val = request.get("val")
+    msTimestamp=request.get("timestamp")
     if val == None:
         return {"error": "bad request"}, 400
     if len(json.dumps(val)) > 1000000:
