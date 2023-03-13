@@ -17,7 +17,7 @@ from background import Executor, broadcastAll, broadcastOne
 from operations import OperationGenerator, Operation
 from causal import getData, putData, deleteData
 from consistent_hashing import HashRing
-from key_reshuffle import remove_shards, add_shards
+from key_reshuffle import remove_shards, add_shards, rehash_key_send_to_new_shard
 
 
 # need startup logic when creating a replica (broadcast?)
@@ -55,10 +55,10 @@ async def putview():
     
     numshards = int(myjson["num_shards"]) #Number of Shards
     nodelist = myjson["nodes"] #(Temporary Variable) List of nodes
-    """
-    if numshards > numnodes:
+    
+    if numshards > len(nodelist):
         return {"bruh": "too many nodes"}, 400
-    """
+    
     global associated_nodes, current_shard_id, nodes
 
     if len(associated_nodes):
@@ -70,7 +70,7 @@ async def putview():
         num_old_shards = len(associated_nodes.keys())
         # remove a shard -- move nodes in that shard to another shard
         if numshards < num_old_shards:
-            remove_shards(num_old_shards, numshards, associated_nodes, hashRing, nodelist, NAME)
+            current_shard_id = remove_shards(num_old_shards, numshards, associated_nodes, hashRing, nodelist, NAME)
 
         # FIXME: need to do    
         elif numshards > num_old_shards:
@@ -141,6 +141,7 @@ def checkjson(myjson):
 @app.route('/update_view', methods= ['PUT'])
 def update_kvs_view():
     global DATA, nodes, initialized, associated_nodes, current_shard_id, hashRing, reshuffle
+    reshuffle = True
     d = request.json
     associated_nodes = json.loads(d)
     hashRing.clear()
@@ -148,18 +149,15 @@ def update_kvs_view():
     for k,v in associated_nodes.items():
         hashRing.add_shard(k)
         if NAME in v:
-            # if find oneself in a different shard and have data
-            if current_shard_id != k and len(DATA):
-                reshuffle = True
             current_shard_id = k
 
-    if reshuffle:
-        for k in DATA.get_all_keys():
-            shard_id = hashRing.assign(k)
-            if shard_id != current_shard_id:
-                n = associated_nodes[shard_id][0]
-                url = f'http://{n}/reshuffle'
-                requests.put(url, json={k: DATA.get(k).asDict()}, timeout=1)
+    # when node is not in any shard -- send keys away before deleting
+    if current_shard_id == None: 
+        rehash_key_send_to_new_shard(DATA, hashRing, current_shard_id, associated_nodes)
+        delete_node()
+        return "OK", 200
+
+    rehash_key_send_to_new_shard(DATA, hashRing, current_shard_id, associated_nodes)
 
     nodes = associated_nodes[current_shard_id].copy()
     nodes.remove(NAME)
