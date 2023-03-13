@@ -17,7 +17,7 @@ from background import Executor, broadcastAll, broadcastOne
 from operations import OperationGenerator, Operation
 from causal import getData, putData, deleteData
 from consistent_hashing import HashRing
-from key_reshuffle import remove_shards
+from key_reshuffle import remove_shards, add_shards
 
 
 # need startup logic when creating a replica (broadcast?)
@@ -34,7 +34,6 @@ operations = []
 initialized = False
 associated_nodes:dict[str, list[str]] = {} # hold shard id and nodes associated with it 
 current_shard_id = None
-reshuffle = False
 
 hashRing = HashRing(2543, 3)
 
@@ -97,9 +96,9 @@ async def putview():
         associated_nodes[shard_id[y]].append(n)
         if n == NAME:
             current_shard_id = shard_id[y]
-            y += 1
-            if y == numshards:
-                y = 0
+        y += 1
+        if y == numshards:
+            y = 0
 
     nodes = associated_nodes[current_shard_id].copy()
     nodes.remove(NAME)
@@ -107,7 +106,7 @@ async def putview():
     for n in nodelist:
         if n == NAME: 
             continue
-        url = f'http://{n}/update_kvs'
+        url = f'http://{n}/update_view'
         requests.put(url, json=json.dumps(associated_nodes), timeout=1)
     
     return "OK", 200
@@ -145,7 +144,7 @@ def update_kvs_view():
     d = request.json
     associated_nodes = json.loads(d)
     hashRing.clear()
-    
+    current_shard_id = None
     for k,v in associated_nodes.items():
         hashRing.add_shard(k)
         if NAME in v:
@@ -261,7 +260,7 @@ async def dataRoute(key):
 @app.route("/kvs/data", methods=["GET"])
 async def get_keys():
     if not initialized:
-        return {"error":"uninitialized"}, 418
+        return {"error": "uninitialized"}, 418
 
     new_keys = []
     metadata = list(request.json['causal-metadata'])
@@ -282,8 +281,8 @@ async def get_keys():
 
 async def gossip():
     while True:
-        if reshuffle:
-            await asyncio.sleep(7)
+        while reshuffle:
+            await asyncio.sleep(0.5)
 
         await asyncio.sleep(1)
         # don't send anything if there is no available nodes or no data
@@ -310,7 +309,7 @@ def update_tree():
     new_data = request.data
     
     if new_data == None:
-        return {"error":"empty data"}, 400    
+        return {"error": "empty data"}, 400    
     
     new_data = pickle.loads(new_data)
     if len(DATA) == 0:
