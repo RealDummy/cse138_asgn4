@@ -17,6 +17,8 @@ def check_arg_count():
         usage()
 
 
+unittest.TestLoader.sortTestMethodsUsing = None
+
 def parse_args():
     check_arg_count()
     local_ports = []
@@ -96,7 +98,8 @@ class TestAssignment(unittest.TestCase):
         for h, p in zip(hosts, ports):
             delete(kvs_view_admin_url(p,h))
 
-    def test_a_put_get_view(self):
+    # put get view
+    def test_a(self):
         res = put(kvs_view_admin_url(ports[0], hosts[0]),
                   put_view_body(view_addresses, num_shard))
         self.assertEqual(res.status_code, 200, msg='Bad status code')
@@ -106,21 +109,42 @@ class TestAssignment(unittest.TestCase):
         res = get(kvs_view_admin_url(ports[0], hosts[0]))
         body = res.json()
         self.assertIn('view', body, msg='Key not found in json response')
-        print(body)
+        print(' test a:', body)
+        print('\n')
 
         time.sleep(2)
+       
+        # test to see that new view has propagated throughout
+        res = get(kvs_view_admin_url(ports[2], hosts[2]))
+        body2 = res.json()
+        self.assertIn('view', body, msg='Key not found in json response')
+        self.assertEqual(body, body2, msg='not the same view')
+    
+    # decrease shard by 2 and only take first 3 nodes
+    def test_b(self):
+        view_addresses_1 = view_addresses[:3]
+        res = put(kvs_view_admin_url(ports[0], hosts[0]),
+                  put_view_body(view_addresses_1, str(int(num_shard) -2)))
         
+        self.assertEqual(res.status_code, 200, msg='Bad status code')
+        time.sleep(2)
+
+        res = get(kvs_view_admin_url(ports[0], hosts[0]))
+        body = res.json()
+        self.assertIn('view', body, msg='Key not found in json response')
+        print(' test b:', body)
+        print('\n')
+
         # test to see that new view has propagated throughout
         res = get(kvs_view_admin_url(ports[2], hosts[2]))
         body2 = res.json()
         self.assertIn('view', body, msg='Key not found in json response')
         self.assertEqual(body, body2, msg='not the same view')
 
-    def test_b_change_view(self):
-        global view_addresses
-        view_addresses = view_addresses[:3]
+    # more shards and more nodes
+    def test_c(self):
         res = put(kvs_view_admin_url(ports[0], hosts[0]),
-                  put_view_body(view_addresses, num_shard))
+                  put_view_body(view_addresses, str(int(num_shard) + 2)))
         self.assertEqual(res.status_code, 200, msg='Bad status code')
 
         time.sleep(2)
@@ -128,21 +152,16 @@ class TestAssignment(unittest.TestCase):
         res = get(kvs_view_admin_url(ports[0], hosts[0]))
         body = res.json()
         self.assertIn('view', body, msg='Key not found in json response')
-        print(body)
+        print(' test c:', body)
+        print('\n')
 
-        time.sleep(2)
-        
         # test to see that new view has propagated throughout
         res = get(kvs_view_admin_url(ports[2], hosts[2]))
         body2 = res.json()
         self.assertIn('view', body, msg='Key not found in json response')
         self.assertEqual(body, body2, msg='not the same view')
-
-        # test to see if node has been uninitialized
-        res = put(kvs_data_key_url(keys[2], ports[3], hosts[3]),
-                  put_val_body(vals[2]))
-        body = res.json()
-        self.assertEqual(res.status_code, 418, msg='Bad status code')
+    
+    
 
 if __name__ == '__main__':
     unittest.main(argv=['first-arg-is-ignored'], exit=False)

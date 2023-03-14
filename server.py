@@ -17,8 +17,9 @@ from background import Executor, broadcastAll, broadcastOne
 from operations import OperationGenerator, Operation
 from causal import getData, putData, deleteData
 from consistent_hashing import HashRing
-from key_reshuffle import remove_shards, add_shards
 from typing import Coroutine, Any
+from key_reshuffle import remove_shards, add_shards, rehash_key_send_to_new_shard
+
 
 # need startup logic when creating a replica (broadcast?)
 NAME = os.environ.get('ADDRESS')  # get IP and port
@@ -32,7 +33,7 @@ OPGEN = OperationGenerator(NAME)
 nodes = [] # hold list of node in the cluster
 operations = []
 initialized = False
-associated_nodes:dict[str, list[str]] = {} # hold shard id and nodes associated with it 
+associated_nodes:dict[str, list[str]] = {} # hold shard id and nodes associated with it
 current_shard_id = None
 reshuffle = False
 
@@ -53,13 +54,13 @@ async def putview():
         return {"error": "bad request"}, 400
     initialized = True
 
-    
+
     numshards = int(myjson["num_shards"]) #Number of Shards
     nodelist = myjson["nodes"] #(Temporary Variable) List of nodes
-    """
-    if numshards > numnodes:
+
+    if numshards > len(nodelist):
         return {"bruh": "too many nodes"}, 400
-    """
+
     global associated_nodes, current_shard_id, nodes
 
     if len(associated_nodes):
@@ -71,9 +72,9 @@ async def putview():
         num_old_shards = len(associated_nodes.keys())
         # remove a shard -- move nodes in that shard to another shard
         if numshards < num_old_shards:
-            remove_shards(num_old_shards, numshards, associated_nodes, hashRing, nodelist, NAME)
+            current_shard_id = remove_shards(num_old_shards, numshards, associated_nodes, hashRing, nodelist, NAME)
 
-        # FIXME: need to do    
+        # FIXME: need to do
         elif numshards > num_old_shards:
             add_shards(num_old_shards, numshards, associated_nodes, hashRing, nodelist, NAME)
         else:
@@ -86,7 +87,7 @@ async def putview():
     shard_id = []
     for x in range(numshards): #Assign shard ID's (trivial)
         shard_id.append('shard' + str(x))
-    
+
     for shard in shard_id:
         associated_nodes[shard] = []
         hashRing.add_shard(shard)
@@ -103,15 +104,15 @@ async def putview():
 
     nodes = associated_nodes[current_shard_id].copy()
     nodes.remove(NAME)
-    
+
     for n in nodelist:
-        if n == NAME: 
+        if n == NAME:
             continue
         url = f'http://{n}/update_view'
         requests.put(url, json=json.dumps(associated_nodes), timeout=1)
-    
+
     return "OK", 200
-    
+
 @app.route('/kvs/admin/view', methods=['GET'])
 def getview():
     l = []
@@ -120,6 +121,10 @@ def getview():
     return ({'view': l}), 200
 
 @app.route('/kvs/admin/view', methods=['DELETE'])
+def deleteFromViewEndpoint():
+    return delete_node()
+
+
 def delete_node():
     global initialized, DATA
     if not initialized:
@@ -142,6 +147,7 @@ def checkjson(myjson):
 @app.route('/update_view', methods= ['PUT'])
 async def update_kvs_view():
     global DATA, nodes, initialized, associated_nodes, current_shard_id, hashRing, reshuffle
+    reshuffle = True
     d = request.json
     associated_nodes = json.loads(d)
     hashRing.clear()
@@ -149,9 +155,6 @@ async def update_kvs_view():
     for k,v in associated_nodes.items():
         hashRing.add_shard(k)
         if NAME in v:
-            # if find oneself in a different shard and have data
-            if current_shard_id != k and len(DATA):
-                reshuffle = True
             current_shard_id = k
 
     dataToSend: dict[str, dict[str, dict]] = {}
@@ -163,11 +166,11 @@ async def update_kvs_view():
             dataToSend[shard_id].update( {k: DATA.get(k).asDict()} )
         else:
             dataToSend[shard_id] = {k: DATA.get(k).asDict()}
-    
+
     futures: list[Coroutine[Any, Any, tuple[str, int] | None]] = []
     for shardId, shardData in dataToSend:
         futures.append( broadcastOne(
-            "PUT", 
+            "PUT",
             associated_nodes[shardId],
             "/reshuffle",
             shardData,
@@ -177,6 +180,13 @@ async def update_kvs_view():
         done, pending = await asyncio.wait(futures)
         print(done, pending) #debug
 
+    # when node is not in any shard -- send keys away before deleting
+    if current_shard_id == None:
+        # rehash_key_send_to_new_shard(DATA, hashRing, current_shard_id, associated_nodes)
+        delete_node()
+        return "OK", 200
+
+    rehash_key_send_to_new_shard(DATA, hashRing, current_shard_id, associated_nodes)
 
     nodes = associated_nodes[current_shard_id].copy()
     nodes.remove(NAME)
@@ -221,7 +231,7 @@ def putKey(key):
     assert reqDict
     node = KvsNode( reqDict["value"],
         operation=Operation.fromString(reqDict["operation"]),
-        msSinceEpoch=int(reqDict["timestamp"]), 
+        msSinceEpoch=int(reqDict["timestamp"]),
         dependencies=[*map(Operation.fromString, reqDict["dependencies"])]
     )
     DATA.put(key, node)
@@ -262,7 +272,7 @@ async def dataRoute(key):
     match request.method:
         case "GET":
             res = await getData(key, request.json, nodes=nodes, data=DATA)
-            return res 
+            return res
         case "PUT":
             res = putData(key, request.json, data=DATA, nodes=nodes, executor=BGE, opgen=OPGEN)
             return res
@@ -287,7 +297,7 @@ async def get_keys():
         if res[1] != 404:
             new_keys.append(key)
             metadata = list(set(metadata + list(res[0].get('causal-metadata'))))
-            
+
     return {
         'shard_id': current_shard_id,
         "count" : len(DATA),
@@ -304,12 +314,12 @@ async def gossip():
         # don't send anything if there is no available nodes or no data
         if len(nodes) == 0:
             continue
-        if len(DATA) == 0: 
+        if len(DATA) == 0:
             continue
 
         # pick a random node
-        num = randrange(len(nodes)) 
-        
+        num = randrange(len(nodes))
+
         url = 'http://{}/gossip'.format(nodes[num])
         pickled_tree = pickle.dumps(DATA)
         try:
@@ -321,12 +331,12 @@ async def gossip():
 def update_tree():
     global DATA
 
-    # receive tree and compare it to the 
+    # receive tree and compare it to the
     new_data = request.data
-    
+
     if new_data == None:
-        return {"error": "empty data"}, 400    
-    
+        return {"error": "empty data"}, 400
+
     new_data: Kvs = pickle.loads(new_data)
     if len(DATA) == 0:
         DATA = new_data

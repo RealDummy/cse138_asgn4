@@ -3,6 +3,7 @@ import json
 import math
 
 from consistent_hashing import HashRing
+from kvs import Kvs, KvsNode
 
 ############################
 # FIXME: currently assume that number of nodes hasn't changed
@@ -35,9 +36,9 @@ def remove_shards(num_old_shards: int , numshards: int, associated_nodes: dict, 
         associated_nodes[shard_id[y]].append(n)
         if n == NAME:
             current_shard_id = shard_id[y]
-            y += 1
-            if y == numshards:
-                y = 0
+        y += 1
+        if y == numshards:
+            y = 0
 
     for k in associated_nodes.keys():
         for n in associated_nodes[k]:
@@ -45,6 +46,8 @@ def remove_shards(num_old_shards: int , numshards: int, associated_nodes: dict, 
                 continue
             url = f'http://{n}/update_view'
             requests.put(url, json=json.dumps(associated_nodes), timeout=1)
+    
+    return current_shard_id
 
 
 def add_shards(num_old_shards: int, numshards: int, associated_nodes: dict, hashRing: HashRing, nodelist: list, NAME:str):
@@ -57,6 +60,29 @@ def add_shards(num_old_shards: int, numshards: int, associated_nodes: dict, hash
 
     num_node_in_shard = math.floor(len(nodelist) / numshards)  # the min number of nodes per shard
 
+    new_nodes_need_to_add = []
+    old_node_need_rm = []
+    old_nodelist = []
+    for k in associated_nodes.keys():
+        for n in associated_nodes[k]:
+            old_nodelist.append(n)
+
+    # in the new node list but not in the old list -- need to add to associated_nodes
+    for n in nodelist:
+        if n not in old_nodelist:
+            # add new nodes to associated_nodes
+            keys = list(associated_nodes.keys())
+            if len(associated_nodes[keys[0]]) < num_node_in_shard:
+                    associated_nodes[keys[0]].append(n)
+
+    # in the old node list but not the new -- need to delete from associated_nodes
+    for n in old_nodelist:
+        if n not in nodelist:
+            old_node_need_rm.append(n)
+            # remove nodes from associated_nodes
+            for key in associated_nodes.keys():
+                associated_nodes[key].remove(n, None)
+    
     for i in range(num_shard_need_to_add):  # for each shard that we need to add
         for j in range(num_node_in_shard):  # for the min number of nodes per shard
             sorted_shards = [k for k in sorted(associated_nodes, key=lambda k: len(associated_nodes[k]))]  # sort shards by number of nodes
@@ -71,4 +97,18 @@ def add_shards(num_old_shards: int, numshards: int, associated_nodes: dict, hash
                 continue
             url = f'http://{n}/update_view'
             requests.put(url, json=json.dumps(associated_nodes), timeout=1)
+    
+    for n in old_node_need_rm:
+        url = f'http://{n}/kvs/admin/view'
+        requests.delete(url, json=json.dumps(associated_nodes), timeout=1)
+
+def rehash_key_send_to_new_shard(data: Kvs, hashRing: HashRing, current_shard_id, associated_nodes: dict):
+    for k in data.get_all_keys():
+        shard, _= hashRing.assign(k)
+        if shard != current_shard_id:
+            for n in associated_nodes[shard]:
+                url = f'http://{n}/reshuffle'
+                requests.put(url, json={k: data.get(k).asDict()}, timeout=1)
+
+
 
