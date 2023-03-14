@@ -18,7 +18,7 @@ from operations import OperationGenerator, Operation
 from causal import getData, putData, deleteData
 from consistent_hashing import HashRing
 from key_reshuffle import remove_shards, add_shards
-
+from typing import Coroutine, Any
 
 # need startup logic when creating a replica (broadcast?)
 NAME = os.environ.get('ADDRESS')  # get IP and port
@@ -34,6 +34,7 @@ operations = []
 initialized = False
 associated_nodes:dict[str, list[str]] = {} # hold shard id and nodes associated with it 
 current_shard_id = None
+reshuffle = False
 
 hashRing = HashRing(2543, 3)
 
@@ -139,7 +140,7 @@ def checkjson(myjson):
     return True
 
 @app.route('/update_view', methods= ['PUT'])
-def update_kvs_view():
+async def update_kvs_view():
     global DATA, nodes, initialized, associated_nodes, current_shard_id, hashRing, reshuffle
     d = request.json
     associated_nodes = json.loads(d)
@@ -153,13 +154,29 @@ def update_kvs_view():
                 reshuffle = True
             current_shard_id = k
 
-    if reshuffle:
-        for k in DATA.get_all_keys():
-            shard_id = hashRing.assign(k)
-            if shard_id != current_shard_id:
-                n = associated_nodes[shard_id][0]
-                url = f'http://{n}/reshuffle'
-                requests.put(url, json={k: DATA.get(k).asDict()}, timeout=1)
+    dataToSend: dict[str, dict[str, dict]] = {}
+    for k in DATA.get_all_keys():
+        shard_id, hash = hashRing.assign(k)
+        if shard_id != current_shard_id:
+            continue
+        if shard_id in dataToSend:
+            dataToSend[shard_id].update( {k: DATA.get(k).asDict()} )
+        else:
+            dataToSend[shard_id] = {k: DATA.get(k).asDict()}
+    
+    futures: list[Coroutine[Any, Any, tuple[str, int] | None]] = []
+    for shardId, shardData in dataToSend:
+        futures.append( broadcastOne(
+            "PUT", 
+            associated_nodes[shardId],
+            "/reshuffle",
+            shardData,
+            20,
+        ) )
+    if futures:
+        done, pending = await asyncio.wait(futures)
+        print(done, pending) #debug
+
 
     nodes = associated_nodes[current_shard_id].copy()
     nodes.remove(NAME)
@@ -172,7 +189,7 @@ def update_kvs_view():
 def reshuffle_key():
     data = request.json
     for d in data.keys():
-        kvs_node = KvsNode().fromDict(data[d])
+        kvs_node = KvsNode.fromDict(data[d])
         DATA.put(d, kvs_node)
 
 async def try_send_new_view(node, view):
@@ -229,12 +246,11 @@ async def keyEndpoint(key: str):
     addresses = associated_nodes[shardId]
     proxyData = request.json
     proxyData["timestamp"] = time() * 1000
-
-    try:
-        res = await broadcastOne(request.method, addresses, f"proxy/data/{key}", proxyData, 20)
-        return res
-    except httpx.TimeoutException:
+    print(addresses, flush=True)
+    res = await broadcastOne(request.method, addresses, f"/proxy/data/{key}", proxyData, 20)
+    if res is None:
         return {"error": "upstream down", "upstream": {"shard_id": shardId, "nodes": [addresses]}}, 503
+    return res
 
 @app.route("/proxy/data/<key>", methods=["GET", "PUT", "DELETE"])
 async def dataRoute(key):
@@ -311,7 +327,7 @@ def update_tree():
     if new_data == None:
         return {"error": "empty data"}, 400    
     
-    new_data = pickle.loads(new_data)
+    new_data: Kvs = pickle.loads(new_data)
     if len(DATA) == 0:
         DATA = new_data
         return "OK", 200

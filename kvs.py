@@ -104,7 +104,7 @@ class Kvs:
         else:
             return False
     
-    def get_all_keys(self):
+    def get_all_keys(self) -> list[str]:
         l = []
         for k in list(self._data.keys()):
             if self._data[k].value != None:

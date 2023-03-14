@@ -3,7 +3,7 @@ from bisect import bisect, bisect_left, bisect_right
 
 
 # using sha256 rn
-def hash_fn(key, max_hashes):
+def hash_fn(key: str, max_hashes: int) -> int:
     return int(hashlib.sha256(key.encode()).hexdigest(), 16) % max_hashes
 
 
@@ -54,10 +54,10 @@ class HashRing:
         return key
 
     def assign(self, val) -> tuple[str, int]:  # returns which shard a thing should be assigned to
-        key = hash_fn(val, self.max_hashes)
-        return self.assign_prehashed(self, key), key
+        hash = hash_fn(val, self.max_hashes)
+        return (self.assign_prehashed(hash), hash)
 
-    def assign_prehashed(self, hash):
+    def assign_prehashed(self, hash: int):
         index = bisect_right(self.keys, hash) % len(self.keys)
         return self.shards[index]
 
