@@ -4,21 +4,19 @@ import os
 import sys
 import requests
 import pickle
-from time import sleep, time
+from time import time
 from random import randrange
 import asyncio
 import json
-import re
-import math
 import httpx
 
 from kvs import Kvs, KvsNode, getLargerNode
-from background import Executor, broadcastAll, broadcastOne
+from background import Executor, broadcastOne, broadcastAll
 from operations import OperationGenerator, Operation
 from causal import getData, putData, deleteData
 from consistent_hashing import HashRing
 from typing import Coroutine, Any
-from key_reshuffle import remove_shards, add_shards, rehash_key_send_to_new_shard
+from key_reshuffle import remove_shards, add_shards, solveViewChange 
 
 
 # need startup logic when creating a replica (broadcast?)
@@ -63,53 +61,34 @@ async def putview():
 
     global associated_nodes, current_shard_id, nodes
 
-    if len(associated_nodes):
-        old_nodelist = []
-        for key in associated_nodes:
-            for n in associated_nodes[key]:
-                old_nodelist.append(n)
+    # if len(associated_nodes):
+    #     old_nodelist = []
+    #     for key in associated_nodes:
+    #         for n in associated_nodes[key]:
+    #             old_nodelist.append(n)
 
-        num_old_shards = len(associated_nodes.keys())
-        # remove a shard -- move nodes in that shard to another shard
-        if numshards < num_old_shards:
-            current_shard_id = remove_shards(num_old_shards, numshards, associated_nodes, hashRing, nodelist, NAME)
+        # num_old_shards = len(associated_nodes.keys())
+        # # remove a shard -- move nodes in that shard to another shard
+        # if numshards < num_old_shards:
+        #     current_shard_id = remove_shards(num_old_shards, numshards, associated_nodes, hashRing, nodelist, NAME)
 
-        # FIXME: need to do
-        elif numshards > num_old_shards:
-            add_shards(num_old_shards, numshards, associated_nodes, hashRing, nodelist, NAME)
-        else:
-            # when list of new nodes is different than list of old nodes but num_shard stay the same
-            print()
-
-        return "OK", 200
-
-
-    shard_id = []
-    for x in range(numshards): #Assign shard ID's (trivial)
-        shard_id.append('shard' + str(x))
-
-    for shard in shard_id:
-        associated_nodes[shard] = []
-        hashRing.add_shard(shard)
-
-    y = 0
-    #Assign shards to nodes
-    for n in nodelist:
-        associated_nodes[shard_id[y]].append(n)
-        if n == NAME:
-            current_shard_id = shard_id[y]
-        y += 1
-        if y == numshards:
-            y = 0
-
-    nodes = associated_nodes[current_shard_id].copy()
+        # # FIXME: need to do
+        # elif numshards > num_old_shards:
+        #     add_shards(num_old_shards, numshards, associated_nodes, hashRing, nodelist, NAME)
+        # else:
+        #     # when list of new nodes is different than list of old nodes but num_shard stay the same
+        #     print()
+    associated_nodes, nodesToInform = solveViewChange(associated_nodes, nodelist, numshards)
+    print(associated_nodes, numshards, flush=True)
+    assert len(associated_nodes) == numshards
+    for shardId, nodesInShard in associated_nodes.items():
+        if NAME in nodesInShard:
+            current_shard_id = shardId
+            nodes = nodesInShard.copy()
     nodes.remove(NAME)
 
-    for n in nodelist:
-        if n == NAME:
-            continue
-        url = f'http://{n}/update_view'
-        requests.put(url, json=json.dumps(associated_nodes), timeout=1)
+
+    await broadcastAll("PUT", list(nodesToInform), "/update_view", data=associated_nodes, timeout=5)
 
     return "OK", 200
 
@@ -149,7 +128,7 @@ async def update_kvs_view():
     global DATA, nodes, initialized, associated_nodes, current_shard_id, hashRing, reshuffle
     reshuffle = True
     d = request.json
-    associated_nodes = json.loads(d)
+    associated_nodes = d
     hashRing.clear()
     current_shard_id = None
     for k,v in associated_nodes.items():
@@ -160,7 +139,7 @@ async def update_kvs_view():
     dataToSend: dict[str, dict[str, dict]] = {}
     for k in DATA.get_all_keys():
         shard_id, hash = hashRing.assign(k)
-        if shard_id != current_shard_id:
+        if shard_id == current_shard_id:
             continue
         if shard_id in dataToSend:
             dataToSend[shard_id].update( {k: DATA.get(k).asDict()} )
@@ -179,14 +158,13 @@ async def update_kvs_view():
     if futures:
         done, pending = await asyncio.wait(futures)
         print(done, pending) #debug
-
     # when node is not in any shard -- send keys away before deleting
     if current_shard_id == None:
         # rehash_key_send_to_new_shard(DATA, hashRing, current_shard_id, associated_nodes)
         delete_node()
         return "OK", 200
 
-    rehash_key_send_to_new_shard(DATA, hashRing, current_shard_id, associated_nodes)
+    #rehash_key_send_to_new_shard(DATA, hashRing, current_shard_id, associated_nodes)
 
     nodes = associated_nodes[current_shard_id].copy()
     nodes.remove(NAME)

@@ -21,6 +21,5 @@ done
 curl \
 --request PUT \
 --header "Content-Type: application/json" \
---write-out "%{http_code}\n" \
 --data "{\"nodes\": [$view], \"num_shards\": $1}" \
 http://localhost:$port/kvs/admin/view

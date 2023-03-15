@@ -70,7 +70,7 @@ async def getData(key: str, request: dict, *, nodes: list[str], data: Kvs) -> tu
                 tg.create_task(getMissingDependencies(op, nodes, data))
         #now we have our dependencies, go back to top of loop and try again
         if tries != 0:
-            sleep(0.5)
+            await asyncio.sleep(0.5)
         tries += 1
     return {"error": "timed out while waiting for depended updates"}, 500
      

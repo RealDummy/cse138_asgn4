@@ -1,7 +1,7 @@
 #! /bin/bash
 
 nth () {
-    echo $1 | cut -d " " -f $2
+    echo $1 | cut -f $2 -d " " 
 }
 
 ports=$( cat tests/metadata/ports.txt )

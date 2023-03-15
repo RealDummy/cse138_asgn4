@@ -14,6 +14,59 @@ from kvs import Kvs, KvsNode
 ############################
 
 
+ViewType = dict[str, list[str]]
+
+def generateEmptyView(nShards: int) -> ViewType:
+    return {f"shard{i}": [] for i in range(nShards)}
+
+#returns new view
+def solveViewChange(oldView: ViewType, nodesInNewView: list[str], nShards: int ) -> tuple[ViewType, set[str]]:
+    newView = generateEmptyView(nShards)
+
+    nodesInNewViewSet = set(nodesInNewView)
+    nodesInOldViewSet: set[str] = set()
+    for nodes in oldView.values():
+        nodesInOldViewSet.update(nodes)
+    
+    nodesToAdd = nodesInNewViewSet.difference(nodesInOldViewSet)
+    nodesToRemove = nodesInOldViewSet.difference(nodesInNewViewSet)
+
+    minNodesPerShard = len(nodesInNewView) // nShards
+    shardsWithExtraNodeCount = len(nodesInNewView) % nShards
+    maxNodesPerShard = minNodesPerShard + (1 if shardsWithExtraNodeCount else 0)
+
+    for shardId in oldView:
+        if shardId not in newView:
+            nodesToAdd.update(oldView[shardId])
+            continue
+        newView[shardId] = [n for n in oldView[shardId] if n not in nodesToRemove]
+        while len(newView[shardId]) > maxNodesPerShard:
+            nodesToAdd.add(newView[shardId].pop())
+        if newView and shardsWithExtraNodeCount == 0:
+            nodesToAdd.add(newView[shardId].pop())
+        elif len(newView[shardId]) == maxNodesPerShard:
+            shardsWithExtraNodeCount -= 1
+    
+    for node in nodesToAdd:
+        addedNode = False
+        for shard in newView.values():
+            if len(shard) < minNodesPerShard:
+                shard.append(node)
+                addedNode = True
+                break
+        if addedNode:
+            continue
+
+        for shard in newView.values():
+            if len(shard) == minNodesPerShard:
+                shard.append(node)
+                addedNode = True
+                break
+        assert addedNode
+
+    return newView, nodesInNewViewSet.union(nodesInOldViewSet)
+    
+
 def remove_shards(num_old_shards: int , numshards: int, associated_nodes: dict, hashRing: HashRing, nodelist: list, NAME: str):
     num_shard_need_to_rm = num_old_shards - numshards
 
@@ -102,13 +155,13 @@ def add_shards(num_old_shards: int, numshards: int, associated_nodes: dict, hash
         url = f'http://{n}/kvs/admin/view'
         requests.delete(url, json=json.dumps(associated_nodes), timeout=1)
 
-def rehash_key_send_to_new_shard(data: Kvs, hashRing: HashRing, current_shard_id, associated_nodes: dict):
-    for k in data.get_all_keys():
-        shard, _= hashRing.assign(k)
-        if shard != current_shard_id:
-            for n in associated_nodes[shard]:
-                url = f'http://{n}/reshuffle'
-                requests.put(url, json={k: data.get(k).asDict()}, timeout=1)
+# def rehash_key_send_to_new_shard(data: Kvs, hashRing: HashRing, current_shard_id, associated_nodes: dict):
+#     for k in data.get_all_keys():
+#         shard, _= hashRing.assign(k)
+#         if shard != current_shard_id:
+#             for n in associated_nodes[shard]:
+#                 url = f'http://{n}/reshuffle'
+#                 requests.put(url, json={k: data.get(k).asDict()}, timeout=1)
 
 
 

@@ -1,4 +1,4 @@
-from subprocess import run, PIPE
+import subprocess
 import json
 from time import sleep
 import sys
@@ -6,6 +6,10 @@ import sys
 
 TESTS=[]
 SUBNETS = {"kv_subnet", "kv_subnet2", "kv_subnet3"}
+
+def run(cmd: list[str], *args, **kwargs):
+    cmdStr = " ".join(cmd)
+    return subprocess.run(["/bin/bash", "-c", cmdStr], *args, **kwargs)
 
 # decarator! use on test scripts
 def test(t):
@@ -66,10 +70,14 @@ def run_tests(tests: list[str]):
         except Exception as e:
             res[t.__name__] = str(e)
             stopNodes(9)
+    passCount = 0
     for k,v in res.items():
         if v == True or v is None:
+            passCount += 1
+            print(f"{k}: PASS!")
             continue
         print(f"{k}: {v}")
+    print(f"{passCount} out of {len(res)} tests passing")
 
 @test
 def testUnderPartition():
@@ -162,7 +170,124 @@ def testNodeDown():
 
     stopNodes(3)
 
+@test
+def testAddShardToView():
+    runNodes(5)
+    view([1,2,3,4,5], 2)
+    sleep(1)
+    nodeView = getView(1)
+    assert len(nodeView["view"]) == 2
+    for i in range(2,6):
+        assert nodeView == getView(i), "view consistency"
+    view([1,2,3,4,5], 4)
+    sleep(1)
+    nodeView = getView(1)
+    assert len(nodeView["view"]) == 4
+    for i in range(2,6):
+        assert nodeView == getView(i), "view consistency after change"
+    stopNodes(5)
+    
+@test
+def testRemoveShardFromView():
+    runNodes(5)
+    view([1,2,3,4,5], 3)
+    sleep(1)
+    nodeView = getView(1)
+    assert len(nodeView["view"]) == 3
+    for i in range(2,6):
+        assert nodeView == getView(i), "view consistency"
+    view([1,2,3,4,5], 2)
+    sleep(1)
+    nodeView = getView(1)
+    assert len(nodeView["view"]) == 2
+    for i in range(2,6):
+        assert nodeView == getView(i), "view consistency after change"
+    stopNodes(5)
 
+def viewCorrect(expectedShardCount: int, expectedNodeCount: int) -> None:
+    nodeView = getView(1)
+    assert len(nodeView["view"]) == expectedShardCount, "wrong shard count"
+    minShardSize = 1000000
+    maxShardSize = 0
+    for shard in nodeView["view"]:
+        l = len(shard["nodes"])
+        if l < minShardSize:
+            minShardSize = l
+        if l > maxShardSize:
+            maxShardSize = l
+    assert abs(maxShardSize - minShardSize) <= 1
+    for i in range(2, expectedNodeCount):
+        node2view = getView(i)
+        assert nodeView == node2view, f"{i} view wrong"
+        nodeSet = set()
+        for shard in node2view["view"]:
+            for n in shard["nodes"]:
+                assert n not in nodeSet, "node in 2 shards"
+                nodeSet.add(n)
+        assert len(nodeSet) == expectedNodeCount, "incorrect node count"
+                    
+            
+
+@test
+def testAddNodesToView():
+    runNodes(6)
+    view([1,2,3], 2)
+    sleep(1)
+    view([1,2,3,4,5,6], 2)
+    sleep(1)
+    viewCorrect(2,6)
+    stopNodes(6)
+
+@test
+def testRemoveNodesFromView():
+    runNodes(6)
+    view([1,2,3,4,5,6], 2)
+    sleep(1)
+    view([1,2,3], 2)
+    sleep(1)
+    viewCorrect(2,3)
+    stopNodes(6)
+
+@test 
+def testAddNodesAddShards():
+    runNodes(6)
+    view([1,2,3], 2)
+    sleep(1)
+    view([1,2,3,4,5,6], 3)
+    sleep(1)
+    viewCorrect(3,6)
+    stopNodes(6)
+
+@test 
+def testAddNodesRemoveShards():
+    runNodes(6)
+    view([1,2,3], 3)
+    sleep(1)
+    view([1,2,3,4,5,6], 2)
+    sleep(1)
+    print(getView(3))
+    viewCorrect(2,6)
+    stopNodes(6)
+
+@test 
+def testRemoveNodesRemoveShards():
+    runNodes(6)
+    view([1,2,3,4,5,6], 3)
+    sleep(1)
+    view([1,2,3], 2)
+    sleep(1)
+    viewCorrect(2,3)
+    stopNodes(6)
+
+@test 
+def testRemoveNodesAddShards():
+    runNodes(6)
+    view([1,2,3,4,5,6], 2)
+    sleep(1)
+    view([1,2,3], 3)
+    sleep(1)
+    viewCorrect(3,3)
+    stopNodes(6)
 
 
 if __name__ == "__main__":
