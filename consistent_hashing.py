@@ -1,11 +1,18 @@
 import hashlib
-from bisect import bisect, bisect_left, bisect_right
+#from bisect import bisect, bisect_left, bisect_right
 
 
 # using sha256 rn
 def hash_fn(key: str, max_hashes: int) -> int:
     return int(hashlib.sha256(key.encode()).hexdigest(), 16) % max_hashes
 
+def findIndex(keys, hash):
+    maxIndex = 0
+    for i,k in enumerate(keys):
+        maxIndex = k
+        if maxIndex >= hash:
+            return i
+    return 0
 
 class HashRing:
     def __init__(self, max_hashes, virtual_shards):
@@ -15,12 +22,11 @@ class HashRing:
         self.max_hashes = max_hashes
         self.virtual_shards = virtual_shards  # number of shards in addition to the 'real' shard.
 
-    def add_shard(self, shard):
-        key = hash_fn(shard, self.max_hashes)
-        index = bisect(self.keys, key)
+    
 
-        if index > 0 and self.keys[index - 1] == key:
-            raise Exception("HashRing Collision")
+    def add_shard(self, shard: str):
+        key = hash_fn(shard, self.max_hashes)
+        index = findIndex(self.keys, key)
 
         self.keys.insert(index, key)  # insert "real" shard
         self.shards.insert(index, shard)
@@ -29,19 +35,17 @@ class HashRing:
         # add those to the hashring under the shard name
         for i in range(self.virtual_shards):  # insert virtual shards
             virtual_key = hash_fn(str(key), self.max_hashes)
-            index = bisect(self.keys, virtual_key)
+            index = findIndex(self.keys, virtual_key)
             self.keys.insert(index, virtual_key)
             self.shards.insert(index, shard)
             key = str(virtual_key)
-
-        return key
 
     def remove_shard(self, shard):
         if len(self.keys) == 0:
             raise Exception("HashRing Empty")
 
         key = hash_fn(shard, self.max_hashes)
-        index = bisect_left(self.keys, key)
+        index = findIndex(self.keys, key)
 
         if index >= len(self.keys) or self.keys[index] != key:
             raise Exception("Shard not in HashRing")
@@ -58,7 +62,7 @@ class HashRing:
         return (self.assign_prehashed(hash), hash)
 
     def assign_prehashed(self, hash: int):
-        index = bisect_right(self.keys, hash) % len(self.keys)
+        index = findIndex(self.keys, hash) % len(self.keys)
         return self.shards[index]
 
     def clear(self):
@@ -71,22 +75,26 @@ class HashRing:
 
 
 if __name__ == '__main__':
-    shards = ['shard1', 'shard5', 'shard3', 'shard4']
-    shards2 = ['shard1', 'shard3']
+    shards = ['shard1', 'shard2', 'shard3', 'shard4']
+    #shards2 = ['shard1', 'shard3']
 
-    hr = HashRing(int('f' * 32, 16), 1000)  # can set max_hashes to arbitrarily large number, int('f' * 32, 16)
+    hr = HashRing(int('f' * 32, 16), 1)  # can set max_hashes to arbitrarily large number, int('f' * 32, 16)
     for shard in shards:
         hr.add_shard(shard)
 
-    def check_key_distribution(hashring):
+    def check_key_distribution(hashring: HashRing):
         count = {}
         for i in range(10000):
-            count[hashring.assign("key" + str(i))] = count.get(hashring.assign("key" + str(i)), 0) + 1
+            shard, hash = hashring.assign("key" + str(i))
+            if shard in count:
+                count[shard] += 1
+            else:
+                count[shard] = 1
         return count
-    print(check_key_distribution(hr))
+    #print(check_key_distribution(hr))
     # hr.print_ring()
-    print(hr.assign('key1'))
-    hr.remove_shard(hr.assign('key1'))
+    #print(hr.assign('key1'))
+    #hr.remove_shard(hr.assign('key1')[0])
     # hr.print_ring()
     print(check_key_distribution(hr))
     # hr.print_ring()

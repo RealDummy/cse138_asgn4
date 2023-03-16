@@ -35,7 +35,7 @@ associated_nodes:dict[str, list[str]] = {} # hold shard id and nodes associated 
 current_shard_id = None
 reshuffle = False
 
-hashRing = HashRing(2543, 3)
+hashRing = HashRing(2**64, 50)
 
 app = Flask(__name__)
 

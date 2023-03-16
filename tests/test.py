@@ -2,6 +2,7 @@ import subprocess
 import json
 from time import sleep
 import sys
+from threading import Thread, Semaphore
 
 
 TESTS=[]
@@ -120,13 +121,13 @@ def testSplitKvsView():
 
     sleep(5)
     for i in range(1,7):
-        assert len(getView(i)['view']) == 3
+        assert len(getView(i)['view']) == 3, "view is consistant"
 
     assert "val" in get("c4", "k3", 2), "split views healed 1"
     assert "val" in get("c1", "k2", 5), "split views healed 2"
 
-    assert getKeys("c5", 2)["count"] == 3
-    assert getKeys("c5", 5)["count"] == 3
+    assert getKeys("c5", 2)["count"] == 2
+    assert getKeys("c5", 5)["count"] == 2
 
     stopNodes(6)
 
@@ -289,7 +290,65 @@ def testRemoveNodesAddShards():
     viewCorrect(3,3)
     stopNodes(6)
 
+@test
+def testAddKeyRemoveShards():
+    runNodes(6)
+    view([1,2,3,4,5,6], 6)
+    sleep(1)
 
+    put("c1", "testkey1", 3, "tests/keys/small-key1")
+    put("c1", "testkey2", 4, "tests/keys/small-key1")
+    put("c1", "testkey3", 5, "tests/keys/small-key1")
+
+    view([1,2,3,4,5,6], 1)
+    sleep(5)
+    for node in range(1,7):
+        for key in range(1,3):
+            res = get("c2", f"testkey{key}", node)
+            assert "error" not in res, "bad key sharing"
+    stopNodes(6)
+
+@test
+def testAddKeyAddShards():
+    runNodes(6)
+    view([1,2,3,4,5,6], 1)
+    sleep(1)
+
+    put("c1", "testkey1", 3, "tests/keys/small-key1")
+    put("c1", "testkey2", 4, "tests/keys/small-key1")
+    put("c1", "testkey3", 5, "tests/keys/small-key1")
+
+    view([1,2,3,4,5,6], 6)
+    sleep(5)
+    for node in range(1,7):
+        for key in range(1,3):
+            res = get("c2", f"testkey{key}", node)
+            assert "error" not in res, "bad key sharing"
+    stopNodes(6)
+
+def addManyKeysWorker(node: int, count: int):
+    for i in range(count):
+        put(f"c{node}", f"{i}-{node}", node, "tests/keys/small-key2")
+    return None
+        
+
+@test
+def testAddManyKeys():
+    runNodes(9)
+    v = [1,2,3,4,5,6,7,8,9]
+    view(v, 6)
+    sleep(1)
+    threads: list[Thread] = []
+    for node in v:
+        threads.append(Thread(target=addManyKeysWorker, args=(node, 100), daemon=True))
+    for t in threads:
+        t.start()
+    sleep(1)
+    for t in threads:
+        t.join()
+    for node in v:
+        print(node, getKeys(f"c{node}new", node)["count"])
+    print(getView(1))
 if __name__ == "__main__":
     run_tests(sys.argv[1:])
     
