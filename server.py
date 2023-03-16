@@ -35,7 +35,7 @@ associated_nodes:dict[str, list[str]] = {} # hold shard id and nodes associated 
 current_shard_id = None
 reshuffle = False
 
-hashRing = HashRing(2**64, 50)
+hashRing = HashRing(2**64, 2000)
 
 app = Flask(__name__)
 
@@ -79,7 +79,6 @@ async def putview():
         #     # when list of new nodes is different than list of old nodes but num_shard stay the same
         #     print()
     associated_nodes, nodesToInform = solveViewChange(associated_nodes, nodelist, numshards)
-    print(associated_nodes, numshards, flush=True)
     assert len(associated_nodes) == numshards
     for shardId, nodesInShard in associated_nodes.items():
         if NAME in nodesInShard:
@@ -147,14 +146,14 @@ async def update_kvs_view():
             dataToSend[shard_id] = {k: DATA.get(k).asDict()}
 
     futures: list[Coroutine[Any, Any, tuple[str, int] | None]] = []
-    for shardId, shardData in dataToSend:
-        futures.append( broadcastOne(
+    for shardId, shardData in dataToSend.items():
+        futures.append(asyncio.create_task( broadcastOne(
             "PUT",
             associated_nodes[shardId],
             "/reshuffle",
             shardData,
             20,
-        ) )
+        ) ))
     if futures:
         done, pending = await asyncio.wait(futures)
         print(done, pending) #debug
@@ -179,6 +178,7 @@ def reshuffle_key():
     for d in data.keys():
         kvs_node = KvsNode.fromDict(data[d])
         DATA.put(d, kvs_node)
+    return "OK"
 
 async def try_send_new_view(node, view):
     tries = 0
@@ -267,20 +267,24 @@ async def get_keys():
         return {"error": "uninitialized"}, 418
 
     new_keys = []
-    metadata = list(request.json['causal-metadata'])
+    metadata = set(request.json['causal-metadata'])
+    count = 0
     for key in DATA.get_all_keys():
+        if hashRing.assign(key)[0] != current_shard_id:
+            continue
         res = await getData(key, request.json, nodes=nodes, data=DATA)
         if res[1] == 500:
             return res
-        if res[1] != 404:
+        if res[1] == 200:
+            count += 1
             new_keys.append(key)
-            metadata = list(set(metadata + list(res[0].get('causal-metadata'))))
+            metadata.update(res[0].get('causal-metadata'))
 
     return {
         'shard_id': current_shard_id,
-        "count" : len(DATA),
+        "count" : count,
         "keys" : new_keys,
-        "causal-metadata" : metadata
+        "causal-metadata" : list(metadata)
     }, 200
 
 async def gossip():

@@ -206,27 +206,31 @@ def testRemoveShardFromView():
     stopNodes(5)
 
 def viewCorrect(expectedShardCount: int, expectedNodeCount: int) -> None:
-    nodeView = getView(1)
-    assert len(nodeView["view"]) == expectedShardCount, "wrong shard count"
-    minShardSize = 1000000
-    maxShardSize = 0
-    for shard in nodeView["view"]:
-        l = len(shard["nodes"])
-        if l < minShardSize:
-            minShardSize = l
-        if l > maxShardSize:
-            maxShardSize = l
-    assert abs(maxShardSize - minShardSize) <= 1
-    for i in range(2, expectedNodeCount):
-        node2view = getView(i)
-        assert nodeView == node2view, f"{i} view wrong"
-        nodeSet = set()
-        for shard in node2view["view"]:
-            for n in shard["nodes"]:
-                assert n not in nodeSet, "node in 2 shards"
-                nodeSet.add(n)
-        assert len(nodeSet) == expectedNodeCount, "incorrect node count"
-                    
+    for n in range(1, expectedNodeCount):
+        nodeView = getView(n)
+        print(nodeView)
+        assert len(nodeView["view"]) == expectedShardCount, "wrong shard count"
+        minShardSize = 1000000
+        maxShardSize = 0
+        for shard in nodeView["view"]:
+            l = len(shard["nodes"])
+            if l < minShardSize:
+                minShardSize = l
+            if l > maxShardSize:
+                maxShardSize = l
+        assert abs(maxShardSize - minShardSize) <= 1
+        for i in range(1, expectedNodeCount):
+            if i == n:
+                continue
+            node2view = getView(i)
+            assert nodeView == node2view, f"{i} view wrong"
+            nodeSet = set()
+            for shard in node2view["view"]:
+                for n in shard["nodes"]:
+                    assert n not in nodeSet, "node in 2 shards"
+                    nodeSet.add(n)
+            assert len(nodeSet) == expectedNodeCount, "incorrect node count"
+                        
             
 
 @test
@@ -336,19 +340,61 @@ def addManyKeysWorker(node: int, count: int):
 def testAddManyKeys():
     runNodes(9)
     v = [1,2,3,4,5,6,7,8,9]
-    view(v, 6)
+    view(v, 9)
     sleep(1)
     threads: list[Thread] = []
+    nKeysPerNode = 100
     for node in v:
-        threads.append(Thread(target=addManyKeysWorker, args=(node, 100), daemon=True))
+        threads.append(Thread(target=addManyKeysWorker, args=(node, nKeysPerNode), daemon=True))
     for t in threads:
         t.start()
     sleep(1)
     for t in threads:
         t.join()
-    for node in v:
-        print(node, getKeys(f"c{node}new", node)["count"])
-    print(getView(1))
+    assert sum([getKeys(f"c{node}new", node)["count"] for node in v]) == 9 * nKeysPerNode, "1:1 view no work"
+
+    view(v, 3)
+    sleep(3)
+    #3 nodes per shard, each shard should have +-300 keys, 300 * 9 = 2700
+    viewCorrect(3,9)
+    keys = [getKeys(f"c{node}new2", node) for node in v]
+    shards: dict[str, set] = {}
+    for k in keys:
+        id = k["shard_id"]
+        if id in shards:
+            shards[id].update(k["keys"])
+        else:
+            shards[id] = set(k["keys"])
+    summ = 0
+    for shard in shards.values():
+        summ += len(shard)
+        for shard2 in shards.values():
+            if shard is shard2:
+                continue
+            assert shard.isdisjoint(shard2), "shards share keys"
+    assert summ == 9 * nKeysPerNode, "extra keys present"
+    # print([getKeys(f"c{node}new2", node)["count"] for node in v])
+    assert (s:=sum([getKeys(f"c{node}new2", node)["count"] for node in v])) == 27 * nKeysPerNode, f"3:1 view no work, {s}"
+    stopNodes(9)
+
+@test
+def testKeyReshuffle():
+    runNodes(4)
+    view([1,2,3,4], 2)
+    sleep(1)
+    nKeys = 100
+    for i in range(nKeys):
+        put("c1", f"key{i}", 4, "tests/keys/small-key1")
+    sleep(1)
+    view([1,2], 2)
+    sleep(1)
+    for node in range(1,2):
+        for i in range(nKeys):
+            assert "error" not in get(f"c1", f"key{i}", node), "key not found"
+    
+
+    stopNodes(4)
+
 if __name__ == "__main__":
     run_tests(sys.argv[1:])
     

@@ -34,36 +34,31 @@ def solveViewChange(oldView: ViewType, nodesInNewView: list[str], nShards: int )
     minNodesPerShard = len(nodesInNewView) // nShards
     shardsWithExtraNodeCount = len(nodesInNewView) % nShards
     maxNodesPerShard = minNodesPerShard + (1 if shardsWithExtraNodeCount else 0)
-
+    print(f"add: {nodesToAdd}, remove: {nodesToRemove}", flush=True)
     for shardId in oldView:
         if shardId not in newView:
-            nodesToAdd.update(oldView[shardId])
+            nodesToAdd.update( [n for n in oldView[shardId] if n not in nodesToRemove] )
             continue
         newView[shardId] = [n for n in oldView[shardId] if n not in nodesToRemove]
+        print(f"peepee {[n for n in oldView[shardId] if n not in nodesToRemove]}")
         while len(newView[shardId]) > maxNodesPerShard:
             nodesToAdd.add(newView[shardId].pop())
-        if newView and shardsWithExtraNodeCount == 0:
+        if len(newView[shardId]) == maxNodesPerShard and shardsWithExtraNodeCount == 0:
             nodesToAdd.add(newView[shardId].pop())
         elif len(newView[shardId]) == maxNodesPerShard:
             shardsWithExtraNodeCount -= 1
-    
+    print(f"add: {nodesToAdd}, remove: {nodesToRemove}", flush=True)
+
     for node in nodesToAdd:
         addedNode = False
         for shard in newView.values():
-            if len(shard) < minNodesPerShard:
-                shard.append(node)
-                addedNode = True
-                break
-        if addedNode:
-            continue
-
-        for shard in newView.values():
-            if len(shard) == minNodesPerShard:
+            if len(shard) <= minNodesPerShard:
                 shard.append(node)
                 addedNode = True
                 break
         assert addedNode
 
+    assert len(newView) == nShards
     return newView, nodesInNewViewSet.union(nodesInOldViewSet)
     
 

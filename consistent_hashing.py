@@ -1,18 +1,17 @@
 import hashlib
-#from bisect import bisect, bisect_left, bisect_right
-
+from bisect import bisect
 
 # using sha256 rn
 def hash_fn(key: str, max_hashes: int) -> int:
     return int(hashlib.sha256(key.encode()).hexdigest(), 16) % max_hashes
 
-def findIndex(keys, hash):
-    maxIndex = 0
-    for i,k in enumerate(keys):
-        maxIndex = k
-        if maxIndex >= hash:
-            return i
-    return 0
+# def bisect(keys, hash):
+#     maxIndex = 0
+#     for i,k in enumerate(keys):
+#         maxIndex = k
+#         if maxIndex >= hash:
+#             return i
+#     return 0
 
 class HashRing:
     def __init__(self, max_hashes, virtual_shards):
@@ -26,7 +25,7 @@ class HashRing:
 
     def add_shard(self, shard: str):
         key = hash_fn(shard, self.max_hashes)
-        index = findIndex(self.keys, key)
+        index = bisect(self.keys, key)
 
         self.keys.insert(index, key)  # insert "real" shard
         self.shards.insert(index, shard)
@@ -35,7 +34,7 @@ class HashRing:
         # add those to the hashring under the shard name
         for i in range(self.virtual_shards):  # insert virtual shards
             virtual_key = hash_fn(str(key), self.max_hashes)
-            index = findIndex(self.keys, virtual_key)
+            index = bisect(self.keys, virtual_key)
             self.keys.insert(index, virtual_key)
             self.shards.insert(index, shard)
             key = str(virtual_key)
@@ -45,7 +44,7 @@ class HashRing:
             raise Exception("HashRing Empty")
 
         key = hash_fn(shard, self.max_hashes)
-        index = findIndex(self.keys, key)
+        index = bisect(self.keys, key)
 
         if index >= len(self.keys) or self.keys[index] != key:
             raise Exception("Shard not in HashRing")
@@ -62,7 +61,7 @@ class HashRing:
         return (self.assign_prehashed(hash), hash)
 
     def assign_prehashed(self, hash: int):
-        index = findIndex(self.keys, hash) % len(self.keys)
+        index = bisect(self.keys, hash) % len(self.keys)
         return self.shards[index]
 
     def clear(self):
@@ -70,15 +69,14 @@ class HashRing:
         self.shards.clear()
 
     def print_ring(self):
-        print(self.keys)
-        print(self.shards)
+        print(*zip(self.keys, self.shards))
 
 
 if __name__ == '__main__':
     shards = ['shard1', 'shard2', 'shard3', 'shard4']
     #shards2 = ['shard1', 'shard3']
 
-    hr = HashRing(int('f' * 32, 16), 1)  # can set max_hashes to arbitrarily large number, int('f' * 32, 16)
+    hr = HashRing(int('f' * 16, 16), 50)  # can set max_hashes to arbitrarily large number, int('f' * 32, 16)
     for shard in shards:
         hr.add_shard(shard)
 
@@ -97,6 +95,7 @@ if __name__ == '__main__':
     #hr.remove_shard(hr.assign('key1')[0])
     # hr.print_ring()
     print(check_key_distribution(hr))
+    hr.print_ring()
     # hr.print_ring()
     # hr.add_shard("shard2")
     # hr.print_ring()
