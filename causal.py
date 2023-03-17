@@ -88,7 +88,7 @@ async def getData(key: str, request: dict, *, nodes: list[str], data: Kvs, hashR
     
 
 
-def putData(key: str, request: dict, *, data: Kvs, opgen: OperationGenerator, executor: Executor, nodes: list[str]) -> tuple[dict, int]:
+def putData(key: str, request: dict, *, data: Kvs, executor: Executor, nodes: list[str]) -> tuple[dict, int]:
     val = request.get("val")
     msTimestamp=request.get("timestamp")
     if val == None:
@@ -102,8 +102,8 @@ def putData(key: str, request: dict, *, data: Kvs, opgen: OperationGenerator, ex
     reqCausal = []
     ops = metadata.get("ops")
     reqCausal.extend(ops if ops else [])
-        
-    op = opgen.nextName(key)
+
+    op = Operation.fromString(request["operation"])
     node = KvsNode(request["val"], operation=op, msSinceEpoch=msTimestamp, dependencies=[*map(Operation.fromString, reqCausal)])
     isNew = data.put(key, node)
     code = 201 if isNew else 200
@@ -119,7 +119,7 @@ def putData(key: str, request: dict, *, data: Kvs, opgen: OperationGenerator, ex
         "replaced": not isNew
         }, code
 
-def deleteData(key: str, request: dict, *, data: Kvs, opgen: OperationGenerator, executor: Executor, nodes: list[str]) -> tuple[dict, int]:
+def deleteData(key: str, request: dict, *, data: Kvs, executor: Executor, nodes: list[str]) -> tuple[dict, int]:
     msTimestamp = time() * 1000
     metadata = request.get("causal-metadata", {})
     reqCausal = []
@@ -127,7 +127,7 @@ def deleteData(key: str, request: dict, *, data: Kvs, opgen: OperationGenerator,
         ops = metadata.get("ops")
         reqCausal.extend(ops if ops else [])
 
-    op = opgen.nextName(key)
+    op = Operation.fromString(request["operation"])
     success = data.delete(key)
     code = 200 if success else 404
     executor.run(broadcastAll("DELETE", nodes, f"/keys/{key}", "", timeout=1))

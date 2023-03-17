@@ -144,12 +144,13 @@ async def update_kvs_view():
     for k in DATA.get_all_keys():
         shard_id, hash = hashRing.assign(k)
         if shard_id == current_shard_id:
+            print(shard_id, current_shard_id)
             continue
         if shard_id in dataToSend:
             dataToSend[shard_id].update( {k: DATA.get(k).asDict()} )
         else:
             dataToSend[shard_id] = {k: DATA.get(k).asDict()}
-
+    print("dataToSend=",dataToSend, flush=True)
     futures: list[Coroutine[Any, Any, tuple[str, int] | None]] = []
     for shardId, shardData in dataToSend.items():
         futures.append(asyncio.create_task( broadcastOne(
@@ -160,8 +161,8 @@ async def update_kvs_view():
             20,
         ) ))
     if futures:
-        done, pending = await asyncio.wait(futures)
-        print(done, pending) #debug
+        done, pending = await asyncio.wait(futures, timeout=5)
+        print("d,p = ", done, pending) #debug
     # when node is not in any shard -- send keys away before deleting
     if current_shard_id == None:
         delete_node()
@@ -218,6 +219,7 @@ async def keyEndpoint(key: str):
     addresses = associated_nodes[shardId]
     proxyData = request.json
     proxyData["timestamp"] = time() * 1000
+    proxyData["operation"] = repr(OPGEN.nextName(key))
     print(addresses, flush=True)
     res = await broadcastOne(request.method, addresses, f"/proxy/data/{key}", proxyData, 20)
     if res is None:
@@ -237,10 +239,10 @@ async def dataRoute(key):
             res = await getData(key, request.json, nodes=nodes, data=DATA, hashRing=hashRing, associatedNodes=associated_nodes)
             return res
         case "PUT":
-            res = putData(key, request.json, data=DATA, nodes=nodes, executor=BGE, opgen=OPGEN)
+            res = putData(key, request.json, data=DATA, nodes=nodes, executor=BGE)
             return res
         case "DELETE":
-            return deleteData(key, request.json, data=DATA, nodes=nodes, executor=BGE, opgen=OPGEN)
+            return deleteData(key, request.json, data=DATA, nodes=nodes, executor=BGE)
         case _default:
             abort(405)
 

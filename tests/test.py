@@ -67,11 +67,11 @@ def run_tests(tests: list[str]):
             continue
         try:
             res[t.__name__] = t()
-            print(".", end="")
+            print(".", end="", flush=True)
         except Exception as e:
             res[t.__name__] = str(e)
             stopNodes(9)
-            print("!", end="")
+            print("!", end="", flush=True)
     print("")
     passCount = 0
     for k,v in res.items():
@@ -401,7 +401,7 @@ def testKeyReshuffle():
 
     for node in range(1,4):
         for i in range(nKeys):
-            assert "error" not in get(f"c{node}{i}", f"key{i}", node), f"key not found {node} key{i}"
+            assert "error" not in get(f"c{node}{i}", f"key{i}", node), f"key not found {node} key{i}!"
     for node in range(1,4):
         for i in range(nKeys):
             assert "error" not in get(f"c1", f"key{i}", node), f"key not found {node} key{i}"  
