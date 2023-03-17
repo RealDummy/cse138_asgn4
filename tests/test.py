@@ -377,19 +377,27 @@ def testAddManyKeys():
 
 @test
 def testKeyReshuffle():
-    runNodes(4)
-    view([1,2,3,4], 2)
+    runNodes(9)
+    view([1,2,3,4,5,6,7,8,9], 7)
     sleep(1)
     nKeys = 100
     for i in range(nKeys):
         put("c1", f"key{i}", 4, "tests/keys/small-key1")
-    sleep(1)
-    view([1,2], 2)
-    sleep(1)
-    for node in range(1,2):
+    sleep(2)
+    print(getView(3))
+    view([1,2,3], 2)
+    sleep(2)
+    print(getView(1))
+    print(getKeys("c2",1))
+    print(getKeys("c3",2))
+    print(getKeys("c4",3))
+
+    for node in range(1,4):
         for i in range(nKeys):
-            assert "error" not in get(f"c1", f"key{i}", node), f"key not found {node} key{i}"
-    
+            assert "error" not in get(f"c{node}{i}", f"key{i}", node), f"key not found {node} key{i}"
+    for node in range(1,4):
+        for i in range(nKeys):
+            assert "error" not in get(f"c1", f"key{i}", node), f"key not found {node} key{i}"  
 
     stopNodes(4)
 

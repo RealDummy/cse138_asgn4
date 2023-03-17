@@ -7,6 +7,7 @@ class KvsNode:
     def __init__(self, value, *, operation: Operation, msSinceEpoch: int, dependencies: list[Operation] = []) -> None:
         if dependencies:
             assert type(dependencies[0]) == Operation
+        dependencies.append(operation)
         self.value = value
         self.operation = operation
         self.timestamp = msSinceEpoch

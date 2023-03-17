@@ -8,6 +8,8 @@ import httpx
 import json
 from background import Executor, broadcastAll
 from operations import OperationGenerator, Operation
+from consistent_hashing import HashRing
+from key_reshuffle import ViewType
 
 # collection of kv
 
@@ -22,7 +24,7 @@ async def getMissingDependencies(md: Operation, nodes: list[str], data: Kvs):
         res = json.loads(res)
         node = KvsNode.fromDict(res)
         return node
-
+    print("missing dependency: ", md.key, flush=True)
     retDict: dict[str, KvsNode] = await broadcastAll("GET", nodes, f"/keys/{md.key}", {}, 1, putResInData)
     
     # put all nodes in kvs, let kvs figure out which one to keep lol
@@ -32,7 +34,7 @@ async def getMissingDependencies(md: Operation, nodes: list[str], data: Kvs):
             continue
         data.put(md.key, node)
 
-async def getData(key: str, request: dict, *, nodes: list[str], data: Kvs) -> tuple[dict, int]:
+async def getData(key: str, request: dict, *, nodes: list[str], data: Kvs, hashRing: HashRing, associatedNodes: ViewType) -> tuple[dict, int]:
     tInit = time()
 
     causalMetaData:list[str] = request.get("causal-metadata", {}).get("ops", [])
@@ -45,8 +47,8 @@ async def getData(key: str, request: dict, *, nodes: list[str], data: Kvs) -> tu
 
         nodeDependsOn = set([*map(repr, node.dependencies)])
 
-        if node is not EMPTY_NODE:
-            nodeDependsOn.add(repr(node.operation))
+        # if node is not EMPTY_NODE:
+        #     nodeDependsOn.add(repr(node.operation))
 
         #find missing dependencies
         missingDependencies = requestDependsOn.difference( data.opsSeen() )
@@ -67,7 +69,9 @@ async def getData(key: str, request: dict, *, nodes: list[str], data: Kvs) -> tu
                 op = Operation.fromString(dependency)
                 if op.key != key:
                     continue #skip keys that arent this key
-                tg.create_task(getMissingDependencies(op, nodes, data))
+                keyShardId, hash = hashRing.assign(key)
+                print("SHARDID of missing dependency = ", keyShardId)
+                tg.create_task(getMissingDependencies(op, associatedNodes[keyShardId], data))
         #now we have our dependencies, go back to top of loop and try again
         if tries != 0:
             await asyncio.sleep(0.5)

@@ -130,11 +130,14 @@ async def update_kvs_view():
     associated_nodes = d
     hashRing.clear()
     current_shard_id = None
+    
     for k,v in associated_nodes.items():
         hashRing.add_shard(k)
         if NAME in v:
             current_shard_id = k
-
+    if current_shard_id:
+        nodes = associated_nodes[current_shard_id].copy()
+        nodes.remove(NAME)
     dataToSend: dict[str, dict[str, dict]] = {}
     for k in DATA.get_all_keys():
         shard_id, hash = hashRing.assign(k)
@@ -159,14 +162,8 @@ async def update_kvs_view():
         print(done, pending) #debug
     # when node is not in any shard -- send keys away before deleting
     if current_shard_id == None:
-        # rehash_key_send_to_new_shard(DATA, hashRing, current_shard_id, associated_nodes)
         delete_node()
         return "OK", 200
-
-    #rehash_key_send_to_new_shard(DATA, hashRing, current_shard_id, associated_nodes)
-
-    nodes = associated_nodes[current_shard_id].copy()
-    nodes.remove(NAME)
 
     initialized = True
     reshuffle = False
@@ -177,24 +174,10 @@ def reshuffle_key():
     data = request.json
     for d in data.keys():
         kvs_node = KvsNode.fromDict(data[d])
+        print(kvs_node.operation.n)
         DATA.put(d, kvs_node)
-    return "OK"
 
-async def try_send_new_view(node, view):
-    tries = 0
-    while True:
-        if tries == 100 or node not in nodes:
-            break
-        await asyncio.sleep(1)
-        tries += 1
-        url = f'http://{node}/update_kvs'
-        pickled_data = pickle.dumps({"view": view, "data": DATA})
-        try:
-            requests.put(url, data=pickled_data, timeout=1)
-        except Exception:
-            continue
-        else:
-            break
+    return "OK"
 
 # kvs/data/<KEY> - GET, PUT, DELETE
 
@@ -249,7 +232,8 @@ async def dataRoute(key):
 
     match request.method:
         case "GET":
-            res = await getData(key, request.json, nodes=nodes, data=DATA)
+            assert hashRing.assign(key)[0] == current_shard_id
+            res = await getData(key, request.json, nodes=nodes, data=DATA, hashRing=hashRing, associatedNodes=associated_nodes)
             return res
         case "PUT":
             res = putData(key, request.json, data=DATA, nodes=nodes, executor=BGE, opgen=OPGEN)
@@ -265,26 +249,31 @@ async def dataRoute(key):
 async def get_keys():
     if not initialized:
         return {"error": "uninitialized"}, 418
-
+    if request.get_json(silent=True) == None:
+        return {"error": "bad request"}, 400
     new_keys = []
-    metadata = set(request.json['causal-metadata'])
+    metadata = request.json['causal-metadata']
+    operations = set()
+    if "ops" in metadata:
+        operations = set(metadata["ops"])
+
     count = 0
     for key in DATA.get_all_keys():
         if hashRing.assign(key)[0] != current_shard_id:
             continue
-        res = await getData(key, request.json, nodes=nodes, data=DATA)
-        if res[1] == 500:
+        res, code = await getData(key, request.json, nodes=nodes, data=DATA, hashRing=hashRing, associatedNodes=associated_nodes)
+        if code == 500:
             return res
-        if res[1] == 200:
+        if code == 200:
             count += 1
             new_keys.append(key)
-            metadata.update(res[0].get('causal-metadata'))
-
+            operations.update(res.get('causal-metadata', {}).get("ops", []))
+    print(request.json, "operation=", operations)
     return {
         'shard_id': current_shard_id,
         "count" : count,
         "keys" : new_keys,
-        "causal-metadata" : list(metadata)
+        "causal-metadata" : {"ops": list(operations)}
     }, 200
 
 async def gossip():
@@ -306,7 +295,8 @@ async def gossip():
         pickled_tree = pickle.dumps(DATA)
         try:
             requests.put(url, data=pickled_tree, timeout=1)
-        except Exception:
+        except Exception as e:
+            print(f"FUUUUUCK {DATA.get_all_keys()} {e}", flush=True)
             continue
 
 @app.route('/gossip', methods=['PUT'])
