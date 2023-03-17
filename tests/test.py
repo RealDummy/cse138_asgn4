@@ -208,7 +208,6 @@ def testRemoveShardFromView():
 def viewCorrect(expectedShardCount: int, expectedNodeCount: int) -> None:
     for n in range(1, expectedNodeCount):
         nodeView = getView(n)
-        print(nodeView)
         assert len(nodeView["view"]) == expectedShardCount, "wrong shard count"
         minShardSize = 1000000
         maxShardSize = 0
@@ -270,7 +269,6 @@ def testAddNodesRemoveShards():
     sleep(1)
     view([1,2,3,4,5,6], 2)
     sleep(1)
-    print(getView(3))
     viewCorrect(2,6)
     stopNodes(6)
 
@@ -390,7 +388,7 @@ def testKeyReshuffle():
     sleep(1)
     for node in range(1,2):
         for i in range(nKeys):
-            assert "error" not in get(f"c1", f"key{i}", node), "key not found"
+            assert "error" not in get(f"c1", f"key{i}", node), f"key not found {node} key{i}"
     
 
     stopNodes(4)

@@ -52,11 +52,20 @@ def solveViewChange(oldView: ViewType, nodesInNewView: list[str], nShards: int )
     for node in nodesToAdd:
         addedNode = False
         for shard in newView.values():
-            if len(shard) <= minNodesPerShard:
+            if len(shard) < minNodesPerShard:
                 shard.append(node)
                 addedNode = True
                 break
-        assert addedNode
+        if addedNode:
+            continue
+        for shard in newView.values():
+            if len(shard) < maxNodesPerShard:
+                shard.append(node)
+                addedNode = True
+                break
+        if not addedNode:
+            print("here officer!", node, newView)
+            assert False
 
     assert len(newView) == nShards
     return newView, nodesInNewViewSet.union(nodesInOldViewSet)
