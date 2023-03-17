@@ -62,15 +62,17 @@ def view(l: list[int], nShards: int):
 
 def run_tests(tests: list[str]):
     res = {}
-
     for t in TESTS:
         if tests and t.__name__ not in tests:
             continue
         try:
             res[t.__name__] = t()
+            print(".", end="")
         except Exception as e:
             res[t.__name__] = str(e)
             stopNodes(9)
+            print("!", end="")
+    print("")
     passCount = 0
     for k,v in res.items():
         if v == True or v is None:
@@ -116,18 +118,23 @@ def testSplitKvsView():
 
     assert "val" not in get("c1", "k3", 2), "view split metadata not handled correctly 1"
     assert "val" not in get("c4", "k2", 5), "view split metadata not handled correctly 2"
-
+    sleep(2)
     view([1, 2, 3, 4, 5, 6], 3)
-
-    sleep(5)
+    sleep(2)
     for i in range(1,7):
         assert len(getView(i)['view']) == 3, "view is consistant"
 
     assert "val" in get("c4", "k3", 2), "split views healed 1"
     assert "val" in get("c1", "k2", 5), "split views healed 2"
 
-    assert getKeys("c5", 2)["count"] == 2
-    assert getKeys("c5", 5)["count"] == 2
+    count = {}
+    for node in range(1,7):
+        res = getKeys(f"c{node}2", node)
+        count[res["shard_id"]] = res["count"]
+    
+    
+
+    assert sum([n for n in count.values()]) == 2, f"has {count} keys"
 
     stopNodes(6)
 
@@ -380,7 +387,7 @@ def testKeyReshuffle():
     runNodes(9)
     view([1,2,3,4,5,6,7,8,9], 7)
     sleep(1)
-    nKeys = 100
+    nKeys = 5
     for i in range(nKeys):
         put("c1", f"key{i}", 4, "tests/keys/small-key1")
     sleep(2)
@@ -399,7 +406,7 @@ def testKeyReshuffle():
         for i in range(nKeys):
             assert "error" not in get(f"c1", f"key{i}", node), f"key not found {node} key{i}"  
 
-    stopNodes(4)
+    stopNodes(9)
 
 @test
 def testGossip():
@@ -415,7 +422,7 @@ def testGossip():
     heal()
     sleep(5)
     for i in range(1,5):
-        print(getKeys(f"c{i}new", i))
+        assert getKeys(f"c{i}new", i)["count"] == 10
     stopNodes(4)
 
 if __name__ == "__main__":

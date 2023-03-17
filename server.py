@@ -36,7 +36,7 @@ initialized = False
 associated_nodes:dict[str, list[str]] = {} # hold shard id and nodes associated with it
 current_shard_id = None
 reshuffle = False
-merkleTreeCache = {}
+merkleTreeCache: dict[str, MerkleTreeDifferenceFinder] = {}
 hashRing = HashRing(2**64, 2000)
 
 app = Flask(__name__)
@@ -176,7 +176,6 @@ def reshuffle_key():
     data = request.json
     for d in data.keys():
         kvs_node = KvsNode.fromDict(data[d])
-        print(kvs_node.operation.n)
         DATA.put(d, kvs_node)
 
     return "OK"
@@ -270,7 +269,6 @@ async def get_keys():
             count += 1
             new_keys.append(key)
             operations.update(res.get('causal-metadata', {}).get("ops", []))
-    print(request.json, "operation=", operations)
     return {
         'shard_id': current_shard_id,
         "count" : count,
@@ -324,7 +322,7 @@ async def gossip():
             tasks.append( asyncio.create_task( gossipProtocol(differenceFinder, node) ) )
         await asyncio.wait(tasks, timeout=5)
 
-def getMerkleFromCache(uuid: str) -> MerkleTree:
+def getMerkleFromCache(uuid: str) -> MerkleTreeDifferenceFinder:
     global merkleTreeCache
     if uuid in merkleTreeCache:
         return merkleTreeCache[uuid]
@@ -332,8 +330,9 @@ def getMerkleFromCache(uuid: str) -> MerkleTree:
         merkleTree = MerkleTree()
         for key in DATA.get_all_keys():
             merkleTree.insert(Payload(key, json.dumps(DATA.get(key).asDict())))
-        merkleTreeCache[uuid] = merkleTree
-        return merkleTree
+        mtdf = MerkleTreeDifferenceFinder(merkleTree)
+        merkleTreeCache[uuid] = mtdf
+        return mtdf
 def finishedWithMerkle(uuid: str):
     global merkleTreeCache
     if uuid in merkleTreeCache:
@@ -346,8 +345,7 @@ def update_tree():
     # receive tree and compare it to the
     uuid = request.json["id"]
     incoming = request.json["data"]
-    merkleTree = getMerkleFromCache(uuid)
-    differenceFinder = MerkleTreeDifferenceFinder(merkleTree)
+    differenceFinder = getMerkleFromCache(uuid)
     res = differenceFinder.compareForDifferences(incoming)
     for d in differenceFinder.getResult():
         key = d["key"]

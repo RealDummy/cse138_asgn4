@@ -65,6 +65,8 @@ class MerkleTree:
     def findForComparison(self, row: int, unfoundNodes: list[int] | None) -> tuple[list[int], list[dict[str]]]:
         deeper = []
         info = []
+        if len(self.pyramid) == 1:
+            return [], [p.asObj() for p in self.pyramid[0] if not unfoundNodes or p.hash in unfoundNodes]
         if unfoundNodes is not None:
             unfoundNodes = set(unfoundNodes)
         for pos,n in enumerate(self.pyramid[-row]):
@@ -103,7 +105,7 @@ class MerkleTreeDifferenceFinder:
 
     def compareForDifferences(self, incoming: dict[str, list]) -> list[int]:
         other = incoming["nodes"]
-        self.differences.extend(incoming["leaves"])
+        self.differences.extend([l for l in incoming["leaves"] if l["hash"] not in self.ourTreeSet])
         diffSet = self.ourTree.compare(self.ourTreeSet, set(other))
         return list(diffSet)
 
@@ -125,7 +127,31 @@ class Tests(unittest.TestCase):
         for (k,v) in zip(reversed(keys), reversed(vals)):
             mt2.insert(Payload(k,v))
         self.assertEqual(mt1.pyramid[-1][0].asHash(), mt2.pyramid[-1][0].asHash())
-    
+    def testOne(self):
+        keys = [str(i) for i in range(1)]
+        vals = [key*5 for key in keys]
+        mt1 = MerkleTree()
+        mt2 = MerkleTree()
+        for (k,v) in zip(keys,vals):
+            mt1.insert(Payload(k,v))
+        for (k,v) in zip(reversed(keys), reversed(vals)):
+            mt2.insert(Payload(k,v))
+
+        mf1 = MerkleTreeDifferenceFinder(mt1)
+        mf2 = MerkleTreeDifferenceFinder(mt2)
+        row = 1
+        diff = None
+        while True:
+            incoming = mf1.dumpNextPyramidRow(row,diff)
+            diff = mf2.compareForDifferences(incoming)
+            #self.assertLessEqual(len(diff), 1)
+            row += 1
+            if not diff:
+                break
+        r=mf2.getResult()
+
+        self.assertEqual(len(r), 0)
+
     def testoneDiff(self):
 
         m1 = MerkleTree()

@@ -22,4 +22,4 @@ curl \
 --request PUT \
 --header "Content-Type: application/json" \
 --data "{\"nodes\": [$view], \"num_shards\": $1}" \
-http://localhost:$port/kvs/admin/view
+http://localhost:$port/kvs/admin/view 1> /dev/null 2> /dev/null
