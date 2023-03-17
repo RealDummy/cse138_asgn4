@@ -22,4 +22,11 @@ View changes:
 
 Eventual Consistency:
 	We implement gossip to propagate new information in the cluster and enforce eventual consistency. 
-    Gossip runs every second in the background and send the data to a random node in the cluster. 
+    Gossip runs every second in the background and send the data to a random node in the cluster.
+
+Sharding:
+	We implemented sharding using consistent hashing. By hashing the shardID using SHA-256, we place shards along our hashring. We then hash
+those values again n times to get n virtual nodes representing the same shard. By doing this, keys are uniformly distributed between shards on our
+hashring. Keys are assigned to shards on the hashring by hashing the key and using bisect to find the shard that is directly to the right of it. 
+In the event of a view change, we are also able to add or remove shards, add or remove nodes from shards, and reshuffle keys to their correct shard. 
+	
