@@ -295,7 +295,6 @@ async def gossipProtocol(differenceFinder: MerkleTreeDifferenceFinder, node: str
     while True:
         outgoing = differenceFinder.dumpNextPyramidRow(row, res)
         res = await sendGossip(node, outgoing, uuid)
-        print("res===", res, flush=True)
         row += 1
         if not res:
             return

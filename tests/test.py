@@ -387,17 +387,13 @@ def testKeyReshuffle():
     runNodes(9)
     view([1,2,3,4,5,6,7,8,9], 7)
     sleep(1)
-    nKeys = 5
+    nKeys = 20
     for i in range(nKeys):
         put("c1", f"key{i}", 4, "tests/keys/small-key1")
     sleep(2)
-    print(getView(3))
     view([1,2,3], 2)
     sleep(2)
-    print(getView(1))
-    print(getKeys("c2",1))
-    print(getKeys("c3",2))
-    print(getKeys("c4",3))
+
 
     for node in range(1,4):
         for i in range(nKeys):
