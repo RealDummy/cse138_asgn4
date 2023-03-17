@@ -401,6 +401,23 @@ def testKeyReshuffle():
 
     stopNodes(4)
 
+@test
+def testGossip():
+    runNodes(4)
+    view([1,2,3,4], 1)
+    sleep(2)
+    partition([[1],[2,3,4]])
+    nKeys = 5
+    for i in range(nKeys):
+        put("c1", f"key-{i}", 1, "tests/keys/small-key1")
+    for i in range(nKeys):
+        put("c1", f"key2-{i}", 2, "tests/keys/small-key1")
+    heal()
+    sleep(5)
+    for i in range(1,5):
+        print(getKeys(f"c{i}new", i))
+    stopNodes(4)
+
 if __name__ == "__main__":
     run_tests(sys.argv[1:])
     

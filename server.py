@@ -17,6 +17,8 @@ from causal import getData, putData, deleteData
 from consistent_hashing import HashRing
 from typing import Coroutine, Any
 from key_reshuffle import remove_shards, add_shards, solveViewChange 
+from merkle import MerkleTree, MerkleTreeDifferenceFinder, Payload
+from uuid import uuid1
 
 
 # need startup logic when creating a replica (broadcast?)
@@ -34,7 +36,7 @@ initialized = False
 associated_nodes:dict[str, list[str]] = {} # hold shard id and nodes associated with it
 current_shard_id = None
 reshuffle = False
-
+merkleTreeCache = {}
 hashRing = HashRing(2**64, 2000)
 
 app = Flask(__name__)
@@ -276,6 +278,28 @@ async def get_keys():
         "causal-metadata" : {"ops": list(operations)}
     }, 200
 
+
+async def sendGossip(toNode:str, content: dict, uuid: str) -> list[int]:
+    async with httpx.AsyncClient() as client:
+        try:
+            response = await client.put(f"http://{toNode}/gossip",json={"data": content, "id": uuid}, timeout=2)
+            res: list = response.json()
+        except httpx.TimeoutException:
+            res = []
+        return res
+
+async def gossipProtocol(differenceFinder: MerkleTreeDifferenceFinder, node: str):
+    row = 1
+    uuid = str(uuid1())
+    res = None
+    while True:
+        outgoing = differenceFinder.dumpNextPyramidRow(row, res)
+        res = await sendGossip(node, outgoing, uuid)
+        print("res===", res, flush=True)
+        row += 1
+        if not res:
+            return
+
 async def gossip():
     while True:
         while reshuffle:
@@ -288,40 +312,50 @@ async def gossip():
         if len(DATA) == 0:
             continue
 
-        # pick a random node
-        num = randrange(len(nodes))
+        nums = [randrange(len(nodes)) for _ in range(min(len(nodes), 3))]
+        nodesToSendTo = [nodes[num] for num in nums]
+        merkleTree = MerkleTree()
+        for key in DATA.get_all_keys():
+            merkleTree.insert(Payload(key, json.dumps(DATA.get(key).asDict())))
+        differenceFinder = MerkleTreeDifferenceFinder(merkleTree)
 
-        url = 'http://{}/gossip'.format(nodes[num])
-        pickled_tree = pickle.dumps(DATA)
-        try:
-            requests.put(url, data=pickled_tree, timeout=1)
-        except Exception as e:
-            print(f"FUUUUUCK {DATA.get_all_keys()} {e}", flush=True)
-            continue
+        tasks: list[asyncio.Task[tuple[str, list[int]]]] = []
+        for node in nodesToSendTo:
+            tasks.append( asyncio.create_task( gossipProtocol(differenceFinder, node) ) )
+        await asyncio.wait(tasks, timeout=5)
+
+def getMerkleFromCache(uuid: str) -> MerkleTree:
+    global merkleTreeCache
+    if uuid in merkleTreeCache:
+        return merkleTreeCache[uuid]
+    else:
+        merkleTree = MerkleTree()
+        for key in DATA.get_all_keys():
+            merkleTree.insert(Payload(key, json.dumps(DATA.get(key).asDict())))
+        merkleTreeCache[uuid] = merkleTree
+        return merkleTree
+def finishedWithMerkle(uuid: str):
+    global merkleTreeCache
+    if uuid in merkleTreeCache:
+        del merkleTreeCache[uuid]
 
 @app.route('/gossip', methods=['PUT'])
 def update_tree():
     global DATA
 
     # receive tree and compare it to the
-    new_data = request.data
-
-    if new_data == None:
-        return {"error": "empty data"}, 400
-
-    new_data: Kvs = pickle.loads(new_data)
-    if len(DATA) == 0:
-        DATA = new_data
-        return "OK", 200
-    for k in new_data.get_all_keys():
-        if k in DATA.get_all_keys():
-            n1 = DATA.get(k)
-            n2 = new_data.get(k)
-            node = getLargerNode(n1, n2)
-            DATA.put(k, node)
-        else:
-            DATA.put(k, new_data.get(k))
-    return "OK", 200
+    uuid = request.json["id"]
+    incoming = request.json["data"]
+    merkleTree = getMerkleFromCache(uuid)
+    differenceFinder = MerkleTreeDifferenceFinder(merkleTree)
+    res = differenceFinder.compareForDifferences(incoming)
+    for d in differenceFinder.getResult():
+        key = d["key"]
+        val = d["val"]
+        DATA.put(key, KvsNode.fromDict(json.loads(val)))
+    if not res:
+        finishedWithMerkle(uuid)
+    return res
 
 
 if __name__ == "__main__":

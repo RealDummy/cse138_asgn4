@@ -107,7 +107,7 @@ class MerkleTreeDifferenceFinder:
         diffSet = self.ourTree.compare(self.ourTreeSet, set(other))
         return list(diffSet)
 
-    def getResult(self) -> dict[str]:
+    def getResult(self) -> list:
         res = self.differences
         self.differences = []
         return res
