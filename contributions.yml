@@ -1,4 +1,4 @@
 - edpchen: 'Consistent hashing, view change, testing and debugging'
 - swortzma: 'more efficient anti entropy, testing, debugging, view changes'
-- jatdinh: 'Implemented initial code for view changes, set base logic for view changes, and collaborated on final version of view changes'
+- jatdinh: 'Implemented initial code for view changes, set base logic for view changes, collaborated on writing tests'
 - ohtran: 'Gossip, view changes, delete data, get /kvs/data endpoint, testing and debugging'
